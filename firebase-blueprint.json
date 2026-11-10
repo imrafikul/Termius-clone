@@ -1,0 +1,199 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account information, license status, and network preferences",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID"
+        },
+        "email": {
+          "type": "string",
+          "description": "Email of the network engineer"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the user"
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Avatar photo URL"
+        },
+        "role": {
+          "type": "string",
+          "description": "User role: admin or engineer",
+          "enum": ["admin", "engineer"]
+        },
+        "licenseTier": {
+          "type": "string",
+          "description": "Current license tier: free_trial, pro_engineer, enterprise",
+          "enum": ["free_trial", "pro_engineer", "enterprise"]
+        },
+        "trialStartedAt": {
+          "type": "string",
+          "description": "ISO timestamp when the 1-month trial started"
+        },
+        "trialExpiresAt": {
+          "type": "string",
+          "description": "ISO timestamp when the 1-month trial expires (30 days)"
+        },
+        "licenseStatus": {
+          "type": "string",
+          "description": "License state: active, expired, extended",
+          "enum": ["active", "expired", "extended"]
+        },
+        "devicesUsed": {
+          "type": "number",
+          "description": "Count of devices active on this account"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Account registration timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last activity"
+        }
+      },
+      "required": ["userId", "email"]
+    },
+    "LicenseKey": {
+      "title": "LicenseKey",
+      "description": "License grant created by admin for user access",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique License Code or ID",
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "licenseKey": {
+          "type": "string",
+          "description": "License key string (e.g. PPTP-PRO-XXXX-XXXX)",
+          "maxLength": 64
+        },
+        "assignedEmail": {
+          "type": "string",
+          "description": "Target user email or all users wildcard",
+          "maxLength": 100
+        },
+        "tier": {
+          "type": "string",
+          "description": "License Tier",
+          "enum": ["free_trial", "pro_engineer", "enterprise"]
+        },
+        "durationDays": {
+          "type": "number",
+          "description": "Validity period in days (e.g. 30 for 1 month trial, 365 for 1 year)"
+        },
+        "status": {
+          "type": "string",
+          "description": "License active or revoked",
+          "enum": ["active", "revoked", "expired"]
+        },
+        "maxDevices": {
+          "type": "number",
+          "description": "Concurrent device tunnels allowed"
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "Admin email who created the license"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        },
+        "expiresAt": {
+          "type": "string",
+          "description": "Expiration timestamp"
+        }
+      },
+      "required": ["id", "licenseKey", "tier", "durationDays", "status", "createdBy"]
+    },
+    "PPTPProfile": {
+      "title": "PPTPProfile",
+      "description": "PPTP VPN profile with full tunnel or split tunneling routing and credentials",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the profile",
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of the profile owner",
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "ispName": {
+          "type": "string",
+          "description": "ISP or router identifier tag",
+          "maxLength": 100
+        },
+        "host": {
+          "type": "string",
+          "description": "Server IP address or hostname",
+          "maxLength": 255
+        },
+        "username": {
+          "type": "string",
+          "description": "PPTP VPN username",
+          "maxLength": 100
+        },
+        "password": {
+          "type": "string",
+          "description": "PPTP VPN password",
+          "maxLength": 100
+        },
+        "routingMode": {
+          "type": "string",
+          "description": "Tunnel mode: full (change device IP / 0.0.0.0/0) or split (subnets only)",
+          "enum": ["full", "split"]
+        },
+        "targetSubnet": {
+          "type": "string",
+          "description": "Routing destination (0.0.0.0/0 for Full VPN IP change, or CIDR subnet)",
+          "maxLength": 50
+        },
+        "routerIp": {
+          "type": "string",
+          "description": "Remote router management gateway IP",
+          "maxLength": 50
+        },
+        "sshPort": {
+          "type": "number",
+          "description": "SSH management port"
+        },
+        "winboxPort": {
+          "type": "number",
+          "description": "MikroTik Winbox management port"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Update timestamp"
+        }
+      },
+      "required": ["id", "userId", "ispName", "host", "username", "password", "targetSubnet", "routerIp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User account and license profile document, visible to owner and admin"
+    },
+    "/users/{userId}/profiles/{profileId}": {
+      "schema": "PPTPProfile",
+      "description": "Private VPN configurations belonging to the authenticated user"
+    },
+    "/licenses/{licenseId}": {
+      "schema": "LicenseKey",
+      "description": "Managed licenses created by administrators"
+    }
+  }
+}

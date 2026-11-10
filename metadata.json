@@ -1,0 +1,6 @@
+{
+  "name": "PPTP Solution",
+  "description": "Cross-platform Android network management app for ISP engineers and MikroTik administrators with user-space PPTP VpnService, split tunneling, embedded terminal, and network diagnostics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

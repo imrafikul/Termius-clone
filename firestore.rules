@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'rafikul18285@gmail.com' ||
+        request.auth.token.email == 'merafikulus@gmail.com' ||
+        request.auth.token.email == 'rafikulislam18285@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidProfile(data) {
+      return data.keys().hasAll(['id', 'userId', 'ispName', 'host', 'username', 'password', 'targetSubnet', 'routerIp']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.userId is string && (data.userId == request.auth.uid || isAdmin()) &&
+        data.ispName is string && data.ispName.size() <= 100 &&
+        data.host is string && data.host.size() <= 255 &&
+        data.username is string && data.username.size() <= 100 &&
+        data.password is string && data.password.size() <= 100 &&
+        data.targetSubnet is string && data.targetSubnet.size() <= 50 &&
+        data.routerIp is string && data.routerIp.size() <= 50 &&
+        (!('routingMode' in data) || (data.routingMode is string && (data.routingMode == 'full' || data.routingMode == 'split'))) &&
+        (!('sshPort' in data) || data.sshPort is number) &&
+        (!('winboxPort' in data) || data.winboxPort is number);
+    }
+
+    function isValidLicense(data) {
+      return data.keys().hasAll(['id', 'licenseKey', 'tier', 'durationDays', 'status', 'createdBy']) &&
+        data.id is string && isValidId(data.id) &&
+        data.licenseKey is string && data.licenseKey.size() <= 64 &&
+        data.tier is string &&
+        data.durationDays is number &&
+        data.status is string &&
+        data.createdBy is string;
+    }
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Users and Licenses Management Collection
+    match /users/{userId} {
+      // User can get their own profile; Admin can get and list all users for the Admin Panel
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create, update: if (isOwner(userId) || isAdmin()) && isValidId(userId);
+      allow delete: if isAdmin();
+
+      // Isolated PPTP Profiles subcollection
+      match /profiles/{profileId} {
+        allow get, list: if isOwner(userId) || isAdmin();
+        allow delete: if isOwner(userId) || isAdmin();
+        allow create: if (isOwner(userId) || isAdmin()) &&
+          isValidId(profileId) &&
+          isValidProfile(request.resource.data);
+        allow update: if (isOwner(userId) || isAdmin()) &&
+          isValidId(profileId) &&
+          isValidProfile(request.resource.data) &&
+          (request.resource.data.userId == resource.data.userId || isAdmin());
+      }
+    }
+
+    // Admin Created Licenses
+    match /licenses/{licenseId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.assignedEmail == request.auth.token.email);
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidLicense(request.resource.data);
+      allow update: if isAdmin() && isValidLicense(request.resource.data);
+      allow delete: if isAdmin();
+    }
+  }
+}
