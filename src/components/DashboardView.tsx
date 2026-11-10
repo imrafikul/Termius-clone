@@ -155,25 +155,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* 0. Ready-To-Use 1-Click Install Banner */}
       <PWAInstallButton variant="banner" />
 
-      {/* Important Notice: Web PWA vs Native APK */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-3 rounded-xl bg-gradient-to-r from-cyan-950/40 via-slate-900 to-amber-950/30 border border-amber-500/30 text-xs text-slate-300 shadow-sm">
+      {/* Important Notice: Web PWA vs Native APK & GitHub APK Download */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-950/40 via-slate-900 to-cyan-950/40 border border-emerald-500/40 text-xs text-slate-300 shadow-sm">
         <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 shrink-0">
+          <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 shrink-0">
             <Key className="w-4 h-4" />
           </div>
           <div>
-            <span className="font-semibold text-amber-300">ফোনে আসল VPN ও Public IP পরিবর্তনের নির্দেশিকা: </span>
+            <span className="font-semibold text-emerald-300">GitHub থেকে আসল APK ডাউনলোড করার নিয়ম: </span>
             <span className="text-slate-300">
-              ওয়েব অ্যাপ দিয়ে ক্লাউড ও মাইক্রোটিক কন্ট্রোল করা হয়। ফোনের স্ট্যাটাস বারে আসল চাবি (🔑) আইকন ও পুরো ফোনের আইপি পরিবর্তন করতে <strong>Android Native APK</strong> প্রয়োজন।
+              যেহেতু আপনি Git Push করেছেন, GitHub Actions আপনার ফোনের জন্য <strong>app-release.apk</strong> তৈরি করে রেখেছে। স্ট্যাটাস বারে চাবি (🔑) আইকন ও আসল আইপি চেঞ্জের জন্য এপিকে নামিয়ে নিন।
             </span>
           </div>
         </div>
         <button
           onClick={() => setShowApkGuide(true)}
-          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 font-bold text-xs transition cursor-pointer"
+          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition cursor-pointer shadow-md"
         >
-          <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
-          <span>APK পাওয়ার নিয়ম দেখুন</span>
+          <HelpCircle className="w-3.5 h-3.5 text-slate-950" />
+          <span>GitHub থেকে APK নামানোর নিয়ম</span>
         </button>
       </div>
 

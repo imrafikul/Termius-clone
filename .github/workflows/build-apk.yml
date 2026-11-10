@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-apk:
     runs-on: ubuntu-latest
@@ -30,12 +33,27 @@ jobs:
       - name: Get Dependencies
         run: flutter pub get
 
-      - name: Build Release APK
-        run: flutter build apk --release --split-per-abi
+      - name: Build Universal Release APK
+        run: flutter build apk --release
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: PPTP-Solution-Release-APKs
+          name: pptp-solution-apk
           path: build/app/outputs/flutter-apk/*.apk
           retention-days: 30
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        with:
+          tag_name: latest
+          name: "PPTP Solution Latest Release APK"
+          body: |
+            ### PPTP Solution Android APK (Ready To Install)
+            - **Universal APK:** `app-release.apk` (Supports all Android 8.0 - 15+ devices)
+            - **Features:** Full Internet VPN (`0.0.0.0/0`), Split-Tunneling, MikroTik Terminal, Network Diagnostics.
+          files: build/app/outputs/flutter-apk/*.apk
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

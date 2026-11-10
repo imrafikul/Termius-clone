@@ -1,3 +1,5 @@
+process.env.DISABLE_HMR = 'true';
+
 import express, { Request, Response } from 'express';
 import net from 'net';
 import path from 'path';
@@ -450,7 +452,10 @@ async function startServer() {
   if (isDev) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
