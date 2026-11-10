@@ -75,9 +75,23 @@ export async function testConnection() {
 testConnection();
 
 // Sign in with Google Popup
-export async function signInWithGoogle(): Promise<User> {
-  const result = await signInWithPopup(auth, googleProvider);
-  return result.user;
+export async function signInWithGoogle(): Promise<User | null> {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    return result.user;
+  } catch (err: any) {
+    if (
+      err?.code === 'auth/popup-closed-by-user' ||
+      err?.code === 'auth/cancelled-popup-request' ||
+      err?.message?.includes('auth/popup-closed-by-user') ||
+      err?.message?.includes('cancelled-popup-request')
+    ) {
+      // User simply closed the popup before completing sign-in. This is expected user action, not an error.
+      console.info('Google Sign-in was dismissed by user.');
+      return null;
+    }
+    throw err;
+  }
 }
 
 // Sign out
