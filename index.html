@@ -3,20 +3,52 @@
   <head>
     <meta charset="UTF-8" />
     <script>
-      // Suppress Vite HMR WebSocket connection closed error in iframe dev preview
-      window.addEventListener('error', function(e) {
-        if (e && e.message && (e.message.includes('WebSocket') || e.message.includes('closed without opened'))) {
-          e.preventDefault && e.preventDefault();
-          e.stopImmediatePropagation && e.stopImmediatePropagation();
-          return true;
+      // Suppress Vite HMR WebSocket connection closed error in iframe dev preview (per AI Studio environment instructions)
+      (function() {
+        // 1. Intercept console.error to ignore Vite HMR WebSocket proxy drop messages
+        var origConsoleError = console.error;
+        console.error = function() {
+          var args = Array.prototype.slice.call(arguments);
+          var msg = args.map(function(a) { return (a && a.message) ? a.message : String(a); }).join(' ');
+          if (msg.indexOf('WebSocket closed without opened') !== -1 || msg.indexOf('vite-hmr') !== -1 || msg.indexOf('[vite] server connection lost') !== -1) {
+            return;
+          }
+          return origConsoleError.apply(console, arguments);
+        };
+
+        // 2. Mock 'vite-hmr' WebSocket to prevent socket errors in iframe environment
+        var OrigWS = window.WebSocket;
+        if (OrigWS) {
+          window.WebSocket = function(url, protocols) {
+            if (protocols === 'vite-hmr' || (typeof url === 'string' && url.indexOf('vite-hmr') !== -1)) {
+              return {
+                binaryType: 'blob',
+                readyState: 1, // OPEN
+                send: function() {},
+                close: function() {},
+                addEventListener: function() {},
+                removeEventListener: function() {},
+                dispatchEvent: function() { return true; }
+              };
+            }
+            return new OrigWS(url, protocols);
+          };
+          window.WebSocket.prototype = OrigWS.prototype;
+          window.WebSocket.CONNECTING = 0;
+          window.WebSocket.OPEN = 1;
+          window.WebSocket.CLOSING = 2;
+          window.WebSocket.CLOSED = 3;
         }
-      }, true);
-      window.addEventListener('unhandledrejection', function(e) {
-        if (e && e.reason && String(e.reason).includes('WebSocket')) {
-          e.preventDefault && e.preventDefault();
-          e.stopImmediatePropagation && e.stopImmediatePropagation();
-        }
-      }, true);
+
+        // 3. Catch any unhandled window errors
+        window.addEventListener('error', function(e) {
+          if (e && e.message && (e.message.indexOf('WebSocket') !== -1 || e.message.indexOf('closed without opened') !== -1)) {
+            if (e.preventDefault) e.preventDefault();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            return true;
+          }
+        }, true);
+      })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#0b0f19" />

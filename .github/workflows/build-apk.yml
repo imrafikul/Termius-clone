@@ -30,11 +30,18 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Setup local.properties
+        run: |
+          mkdir -p android
+          echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
+          echo "flutter.versionCode=1" >> android/local.properties
+          echo "flutter.versionName=1.0.0" >> android/local.properties
+
       - name: Get Dependencies
         run: flutter pub get
 
       - name: Build Universal Release APK
-        run: flutter build apk --release
+        run: flutter build apk --release --no-tree-shake-icons
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
@@ -51,8 +58,8 @@ jobs:
           name: "PPTP Solution Latest Release APK"
           body: |
             ### PPTP Solution Android APK (Ready To Install)
-            - **Universal APK:** `app-release.apk` (Supports all Android 8.0 - 15+ devices)
-            - **Features:** Full Internet VPN (`0.0.0.0/0`), Split-Tunneling, MikroTik Terminal, Network Diagnostics.
+            - **Universal APK:** `app-release.apk`
+            - **Features:** Android VpnService, Full Internet VPN (`0.0.0.0/0`), Split Tunnel, MikroTik Terminal, Network Diagnostics.
           files: build/app/outputs/flutter-apk/*.apk
           fail_on_unmatched_files: false
         env:
