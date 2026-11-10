@@ -168,13 +168,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </span>
           </div>
         </div>
-        <button
-          onClick={() => setShowApkGuide(true)}
-          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition cursor-pointer shadow-md"
-        >
-          <HelpCircle className="w-3.5 h-3.5 text-slate-950" />
-          <span>GitHub থেকে APK নামানোর নিয়ম</span>
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <a
+            href="https://github.com/imrafikul/Termius-clone/releases"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs transition cursor-pointer shadow-md"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Click to Download APK</span>
+          </a>
+          <button
+            onClick={() => setShowApkGuide(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs transition cursor-pointer"
+          >
+            <HelpCircle className="w-3.5 h-3.5 text-cyan-400" />
+            <span>নিয়মাবলী</span>
+          </button>
+        </div>
       </div>
 
       {/* Account Isolation & 1-Month Trial Status */}

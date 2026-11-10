@@ -22,7 +22,7 @@ interface ApkGuideModalProps {
 }
 
 export const ApkGuideModal: React.FC<ApkGuideModalProps> = ({ isOpen, onClose }) => {
-  const [repoInput, setRepoInput] = useState('');
+  const [repoInput, setRepoInput] = useState('imrafikul/Termius-clone');
   const [copiedLink, setCopiedLink] = useState(false);
 
   if (!isOpen) return null;
@@ -32,21 +32,10 @@ export const ApkGuideModal: React.FC<ApkGuideModalProps> = ({ isOpen, onClose })
     .replace('https://github.com/', '')
     .replace('http://github.com/', '')
     .replace('.git', '')
-    .trim();
+    .trim() || 'imrafikul/Termius-clone';
 
-  const actionsUrl = cleanRepo
-    ? `https://github.com/${cleanRepo}/actions`
-    : 'https://github.com';
-
-  const releasesUrl = cleanRepo
-    ? `https://github.com/${cleanRepo}/releases`
-    : 'https://github.com';
-
-  const handleCopyActionsUrl = () => {
-    navigator.clipboard.writeText(actionsUrl);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2000);
-  };
+  const actionsUrl = `https://github.com/${cleanRepo}/actions`;
+  const releasesUrl = `https://github.com/${cleanRepo}/releases`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
@@ -60,14 +49,14 @@ export const ApkGuideModal: React.FC<ApkGuideModalProps> = ({ isOpen, onClose })
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-bold text-white tracking-tight">
-                  গিটহাব থেকে সরাসরি APK ডাউনলোড করার নিয়ম
+                  APK ডাউনলোড ও Git Push নির্দেশিকা
                 </h3>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  Git Push সম্পন্ন
+                  Click to Download
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                যেহেতু আপনি Git Push করেছেন, GitHub Actions আপনার APK ইতিমধ্যে তৈরি করে রেখেছে!
+                আপনার রিপোজিটরি: <code className="text-cyan-400 font-mono font-bold">imrafikul/Termius-clone</code>
               </p>
             </div>
           </div>
@@ -80,34 +69,51 @@ export const ApkGuideModal: React.FC<ApkGuideModalProps> = ({ isOpen, onClose })
           </button>
         </div>
 
-        {/* Quick Link Generator */}
-        <div className="my-5 p-4 rounded-xl bg-slate-950 border border-cyan-500/30 space-y-3">
-          <label className="block text-xs font-bold text-cyan-300">
-            আপনার GitHub Repository লিংক বা ইউজারনেম দিন (যেমন: rafikul18285/pptp-app):
-          </label>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <div className="relative flex-1">
-              <span className="absolute left-3 top-2.5 text-slate-500 text-xs font-mono">github.com/</span>
-              <input
-                type="text"
-                value={repoInput}
-                onChange={(e) => setRepoInput(e.target.value)}
-                placeholder="username/repository-name"
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-28 pr-3 py-2 text-xs font-mono text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500"
-              />
-            </div>
-            {cleanRepo && (
-              <a
-                href={actionsUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs rounded-lg flex items-center justify-center gap-1.5 transition shrink-0 cursor-pointer shadow-md"
-              >
-                <span>Actions পেজে যান</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            )}
+        {/* 1-Click Direct Download Action Bar */}
+        <div className="my-5 p-4 rounded-xl bg-gradient-to-r from-cyan-950/60 via-slate-950 to-blue-950/60 border border-cyan-500/40 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-white flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-cyan-400" />
+              <span>সরাসরি APK ডাউনলোড লিংক (Click to Download):</span>
+            </span>
+            <span className="text-[10px] font-mono text-cyan-400">Ready</span>
           </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <a
+              href={releasesUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="py-2.5 px-3 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>GitHub Releases থেকে APK নামান</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+
+            <a
+              href={actionsUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="py-2.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Terminal className="w-4 h-4 text-cyan-400" />
+              <span>Actions Tab (Built Artifacts)</span>
+              <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+            </a>
+          </div>
+
+          <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+            <span>রিপোজিটরি পরিবর্তন করতে চাইলে:</span>
+            <input
+              type="text"
+              value={repoInput}
+              onChange={(e) => setRepoInput(e.target.value)}
+              placeholder="username/repo"
+              className="bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-[11px] text-cyan-300 font-mono w-44 focus:outline-none focus:border-cyan-500"
+            />
+          </div>
+
           {cleanRepo && (
             <div className="flex items-center gap-2 pt-1 text-[11px] font-mono text-slate-400">
               <span>Direct Link:</span>

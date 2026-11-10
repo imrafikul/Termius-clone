@@ -53,6 +53,8 @@ class PPTPProfile {
     return sanitizedSubnets.isNotEmpty;
   }
 
+  bool get hasValidSplitTunnelRules => hasValidRoutingRules;
+
   PPTPProfile copyWith({
     String? id,
     String? ispName,

@@ -60,6 +60,7 @@ jobs:
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        continue-on-error: true
         with:
           tag_name: latest
           name: "PPTP Solution Latest Release APK"

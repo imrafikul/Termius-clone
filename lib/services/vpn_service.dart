@@ -118,10 +118,10 @@ class VpnService {
   /// Initiates PPTP connection with strict split-tunneling.
   Future<bool> connect(PPTPProfile profile) async {
     try {
-      // Validate split routing rule before sending to native
-      if (!profile.hasValidSplitTunnelRules) {
+      // Validate routing rule before sending to native
+      if (!profile.hasValidRoutingRules) {
         throw Exception(
-            'Invalid Split-Tunnel configuration: 0.0.0.0/0 is strictly prohibited.');
+            'Invalid routing configuration: No valid target subnets found.');
       }
 
       final Map<String, dynamic> args = {

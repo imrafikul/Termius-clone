@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { registerSW } from 'virtual:pwa-register';
-import { RefreshCw, Sparkles, X, CheckCircle, ArrowUpCircle } from 'lucide-react';
+import { RefreshCw, Sparkles, X, CheckCircle, ArrowUpCircle, Download } from 'lucide-react';
 
 export const PWAUpdateToast: React.FC = () => {
   const [needRefresh, setNeedRefresh] = useState(false);
@@ -73,22 +73,34 @@ export const PWAUpdateToast: React.FC = () => {
               অ্যাপের সর্বশেষ তথ্য ও ফিচার আপডেট করা হয়েছে। ইনস্টল করা অ্যাপটি এখনই আপডেট করুন।
             </p>
 
-            <div className="mt-3 flex items-center gap-2">
-              <button
-                onClick={handleUpdate}
-                disabled={isUpdating}
-                className="flex-1 py-1.5 px-3 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer"
+            <div className="mt-3 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleUpdate}
+                  disabled={isUpdating}
+                  className="flex-1 py-1.5 px-3 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isUpdating ? 'animate-spin' : ''}`} />
+                  <span>{isUpdating ? 'আপডেট হচ্ছে...' : 'এখনই আপডেট করুন (Update Now)'}</span>
+                </button>
+                <button
+                  onClick={() => setNeedRefresh(false)}
+                  className="p-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-400 hover:text-white transition"
+                  title="Dismiss"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <a
+                href="https://github.com/imrafikul/Termius-clone/releases"
+                target="_blank"
+                rel="noreferrer"
+                className="w-full py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isUpdating ? 'animate-spin' : ''}`} />
-                <span>{isUpdating ? 'আপডেট হচ্ছে...' : 'এখনই আপডেট করুন (Update Now)'}</span>
-              </button>
-              <button
-                onClick={() => setNeedRefresh(false)}
-                className="p-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-400 hover:text-white transition"
-                title="Dismiss"
-              >
-                <X className="w-4 h-4" />
-              </button>
+                <Download className="w-3.5 h-3.5 text-cyan-400" />
+                <span>নতুন APK ডাউনলোড করুন (Click to Download)</span>
+              </a>
             </div>
           </div>
         </div>
