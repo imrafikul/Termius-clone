@@ -339,6 +339,8 @@ app.get('/api/download-zip', async (_req: Request, res: Response) => {
       'pubspec.yaml',
       'android/settings.gradle',
       'android/build.gradle',
+      'android/gradlew',
+      'android/gradle/wrapper/gradle-wrapper.properties',
       'android/app/build.gradle',
       'android/app/src/main/AndroidManifest.xml',
       'android/app/src/main/res/values/styles.xml',
