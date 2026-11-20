@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Real L2TPv2 (UDP 1701, RFC 2661) & MS-SSTP (TCP 443 TLS) VPN Client Daemon
-with full PPP (LCP + PAP / CHAP-MD5 / MS-CHAPv2 + IPCP) and Linux /dev/net/tun routing.
+Real PPTP (RFC 2637: TCP 1723 + Enhanced GRE Protocol 47), L2TPv2 (UDP 1701, RFC 2661),
+& MS-SSTP (TCP 443 TLS) VPN Client Daemon with full PPP (LCP + PAP / CHAP-MD5 / MS-CHAPv2 + IPCP)
+and Linux /dev/net/tun routing.
 
 Allows direct Ping, Traceroute, Port Scan, and Telnet/SSH to private LAN IPs
 behind a MikroTik router using ONLY /ppp secret VPN credentials — NO MikroTik admin login needed!
@@ -1190,17 +1191,571 @@ class SstpClient:
                 self.ppp.handle_frame(ppp_frame, self.tun)
 
 
+# ==============================================================================
+# RFC 2637 PPTP Client (TCP 1723 Control Plane + Enhanced GRE IP Protocol 47)
+# ==============================================================================
+
+PPTP_MAGIC = 0x1A2B3C4D
+PPTP_SCCRQ = 1
+PPTP_SCCRP = 2
+PPTP_STOP_CCRQ = 3
+PPTP_STOP_CCRP = 4
+PPTP_ECHO_REQ = 5
+PPTP_ECHO_REP = 6
+PPTP_OCRQ = 7
+PPTP_OCRP = 8
+PPTP_CCR = 12
+PPTP_CDN = 13
+PPTP_SLI = 15
+
+
+def _ip_checksum(data: bytes) -> int:
+    if len(data) % 2 == 1:
+        data += b"\x00"
+    total = 0
+    for i in range(0, len(data), 2):
+        total += (data[i] << 8) + data[i + 1]
+    while total >> 16:
+        total = (total & 0xFFFF) + (total >> 16)
+    return (~total) & 0xFFFF
+
+
+def _find_iface_for_ip(local_ip: str) -> str:
+    for ip_bin in ("/usr/sbin/ip", "/sbin/ip", "ip"):
+        try:
+            out = subprocess.check_output([ip_bin, "-o", "-4", "addr", "show"], text=True, stderr=subprocess.DEVNULL)
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) >= 4 and parts[3].startswith(local_ip + "/"):
+                    return parts[1]
+            # Fallback to first non-loopback interface
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) >= 2 and parts[1] != "lo" and not parts[1].startswith("vpn"):
+                    return parts[1]
+            break
+        except Exception:
+            continue
+    return "eth1"
+
+
+def build_pptp_sccrq() -> bytes:
+    hostname = b"UniversalWebUI".ljust(64, b"\x00")
+    vendor = b"UniversalNetworkEngineer".ljust(64, b"\x00")
+    return (
+        struct.pack(
+            "!HHIHHHHIIHH",
+            156,           # Length
+            1,             # PPTP Message Type (Control)
+            PPTP_MAGIC,    # Magic Cookie
+            PPTP_SCCRQ,    # Control Message Type
+            0,             # Reserved0
+            0x0100,        # Protocol Version 1.0
+            0,             # Reserved1
+            3,             # Framing Capabilities (Async + Sync)
+            3,             # Bearer Capabilities (Analog + Digital)
+            0,             # Maximum Channels
+            1,             # Firmware Revision
+        )
+        + hostname
+        + vendor
+    )
+
+
+def build_pptp_ocrq(local_call_id: int, call_serial: int) -> bytes:
+    return (
+        struct.pack(
+            "!HHIHHHHIIIIHHHH",
+            168,             # Length
+            1,               # Control Message
+            PPTP_MAGIC,      # Magic Cookie
+            PPTP_OCRQ,       # Outgoing-Call-Request
+            0,               # Reserved0
+            local_call_id,   # Call ID
+            call_serial,     # Call Serial Number
+            300,             # Minimum BPS
+            100000000,       # Maximum BPS
+            3,               # Bearer Type (Any)
+            3,               # Framing Type (Any)
+            64,              # Packet Recv Window Size
+            0,               # Packet Processing Delay
+            0,               # Phone Number Length
+            0,               # Reserved1
+        )
+        + (b"\x00" * 64)     # Phone Number
+        + (b"\x00" * 64)     # Subaddress
+    )
+
+
+def build_enhanced_gre(
+    peer_call_id: int,
+    ppp_payload: bytes,
+    tx_seq,
+    ack_num,
+) -> bytes:
+    flags = 0x2001  # K=1, Ver=1 (RFC 2637 Enhanced GRE)
+    if tx_seq is not None:
+        flags |= 0x1000  # S=1
+    if ack_num is not None:
+        flags |= 0x0080  # A=1
+    parts = [struct.pack("!HHHH", flags, 0x880B, len(ppp_payload), peer_call_id)]
+    if tx_seq is not None:
+        parts.append(struct.pack("!I", tx_seq & 0xFFFFFFFF))
+    if ack_num is not None:
+        parts.append(struct.pack("!I", ack_num & 0xFFFFFFFF))
+    if ppp_payload:
+        parts.append(ppp_payload)
+    return b"".join(parts)
+
+
+def build_ipv4_gre_packet(src_ip: str, dst_ip: str, ip_id: int, gre_payload: bytes) -> bytes:
+    total_len = 20 + len(gre_payload)
+    src_b = socket.inet_aton(src_ip)
+    dst_b = socket.inet_aton(dst_ip)
+    hdr_no_cksum = struct.pack(
+        "!BBHHHBBH4s4s",
+        0x45,
+        0,
+        total_len,
+        ip_id & 0xFFFF,
+        0,
+        64,
+        47,  # IP Protocol 47 = GRE
+        0,
+        src_b,
+        dst_b,
+    )
+    cksum = _ip_checksum(hdr_no_cksum)
+    hdr = struct.pack(
+        "!BBHHHBBH4s4s",
+        0x45,
+        0,
+        total_len,
+        ip_id & 0xFFFF,
+        0,
+        64,
+        47,
+        cksum,
+        src_b,
+        dst_b,
+    )
+    return hdr + gre_payload
+
+
+def parse_ipv4_gre_packet(raw_ipv4: bytes, expected_src_bytes: bytes, expected_call_id: int):
+    """Returns (seq_or_None, ack_or_None, ppp_payload_bytes) or None if not matching our PPTP call."""
+    if len(raw_ipv4) < 28:
+        return None
+    if (raw_ipv4[0] >> 4) != 4:
+        return None
+    ihl = (raw_ipv4[0] & 0x0F) * 4
+    if ihl < 20 or len(raw_ipv4) < ihl + 8:
+        return None
+    if raw_ipv4[9] != 47:  # Must be IP Protocol 47 (GRE)
+        return None
+    if raw_ipv4[12:16] != expected_src_bytes:
+        return None
+
+    gre = raw_ipv4[ihl:]
+    flags_ver, proto_type, payload_len, call_id = struct.unpack_from("!HHHH", gre, 0)
+    if proto_type != 0x880B or (flags_ver & 0x0007) != 1:
+        return None
+    if call_id != expected_call_id:
+        return None
+
+    off = 8
+    seq = None
+    ack = None
+    if flags_ver & 0x1000:  # S bit
+        if off + 4 > len(gre):
+            return None
+        seq = struct.unpack_from("!I", gre, off)[0]
+        off += 4
+    if flags_ver & 0x0080:  # A bit
+        if off + 4 > len(gre):
+            return None
+        ack = struct.unpack_from("!I", gre, off)[0]
+        off += 4
+
+    if payload_len == 0:
+        return (seq, ack, b"")
+    if off + payload_len > len(gre):
+        # Some implementations pad or clamp IP total length; take available slice if valid
+        payload = gre[off:]
+    else:
+        payload = gre[off : off + payload_len]
+    return (seq, ack, payload)
+
+
+class PptpClient:
+    def __init__(self, host: str, port: int, username: str, password: str, subnets):
+        self.host = host
+        self.port = port
+        self.username = username
+        self.password = password
+        self.subnets = subnets
+
+        self.local_call_id = random.randint(1000, 60000)
+        self.call_serial = random.randint(1, 65000)
+        self.peer_call_id = 0
+        self.tx_seq = 0
+        self.last_rx_seq = None
+        self.gre_ack_needed = False
+        self.ip_id = random.randint(1, 60000)
+
+        self.server_ip = ""
+        self.server_ip_bytes = b""
+        self.local_ip = ""
+        self.egress_iface = "eth1"
+
+        self.tcp_sock = None
+        self.raw_tx = None
+        self.gre_rx = None
+        self.rx_tcp_buf = bytearray()
+
+        self.tun = TunDevice("vpn0")
+        self.ppp = None
+        self.running = True
+        self.stage = "INIT"
+        self.fatal_error = None
+
+        self.gre_rx_packets = 0
+        self.gre_tx_packets = 0
+        self.bytes_in = 0
+        self.bytes_out = 0
+        self.packets_in = 0
+        self.packets_out = 0
+
+    def _on_fatal(self, reason: str):
+        self.fatal_error = reason
+        self.running = False
+
+    def stop(self):
+        self.running = False
+
+    def _send_tcp_all(self, data: bytes):
+        if not self.tcp_sock:
+            return
+        mv = memoryview(data)
+        sent = 0
+        while sent < len(data):
+            try:
+                n = self.tcp_sock.send(mv[sent:])
+                if n <= 0:
+                    raise OSError("PPTP TCP control socket closed")
+                sent += n
+            except BlockingIOError:
+                select.select([], [self.tcp_sock], [], 0.2)
+
+    def _send_gre(self, ppp_payload: bytes, include_seq: bool = True):
+        if not self.raw_tx or not self.peer_call_id:
+            return
+        seq_val = None
+        if include_seq:
+            seq_val = self.tx_seq
+            self.tx_seq = (self.tx_seq + 1) & 0xFFFFFFFF
+        ack_val = None
+        if self.gre_ack_needed and self.last_rx_seq is not None:
+            ack_val = self.last_rx_seq
+            self.gre_ack_needed = False
+        gre = build_enhanced_gre(self.peer_call_id, ppp_payload, seq_val, ack_val)
+        self.ip_id = (self.ip_id + 1) & 0xFFFF
+        ipv4 = build_ipv4_gre_packet(self.local_ip, self.server_ip, self.ip_id, gre)
+        try:
+            self.raw_tx.sendto(ipv4, (self.server_ip, 0))
+            self.gre_tx_packets += 1
+            if ppp_payload:
+                self.bytes_out += len(ppp_payload)
+                self.packets_out += 1
+        except OSError as exc:
+            log("GRE", "WARN", f"GRE send warning: {exc}")
+
+    def send_ppp_data(self, ppp_frame: bytes):
+        self._send_gre(ppp_frame, include_seq=True)
+
+    def _on_ipcp_up(self, client_ip: str, gateway_ip: str, dns_ip: str, _hlak: bytes):
+        try:
+            routes = self.tun.open_and_configure(client_ip, gateway_ip, self.subnets, mtu=1360)
+            self.stage = "UP"
+            log("TUN", "INFO", f"✓ REAL PPTP TUN {self.tun.name} UP: {client_ip} <-> {gateway_ip} | Routes: {', '.join(routes)}")
+            emit({
+                "event": "CONNECTED",
+                "protocol": "pptp",
+                "clientIp": client_ip,
+                "gatewayIp": gateway_ip,
+                "dnsIp": dns_ip,
+                "iface": self.tun.name,
+                "routes": routes,
+            })
+        except Exception as exc:
+            self._on_fatal(f"Failed to configure Linux TUN interface: {exc}")
+
+    def _open_gre_sockets(self):
+        # TX socket: raw IPv4 with custom IP header (proto=47). Works on both Linux and gVisor.
+        self.raw_tx = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+        self.raw_tx.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+        self.raw_tx.setblocking(False)
+
+        # RX socket: prefer native SOCK_RAW(47) on standard Linux; fallback to AF_PACKET on gVisor
+        try:
+            rx = socket.socket(socket.AF_INET, socket.SOCK_RAW, 47)
+            rx.setblocking(False)
+            self.gre_rx = rx
+            log("GRE", "INFO", "Opened native Linux raw IP Protocol 47 (GRE) receiver socket.")
+        except OSError:
+            self.egress_iface = _find_iface_for_ip(self.local_ip)
+            rx = socket.socket(socket.AF_PACKET, socket.SOCK_DGRAM, socket.htons(0x0800))
+            rx.bind((self.egress_iface, 0))
+            rx.setblocking(False)
+            self.gre_rx = rx
+            log("GRE", "INFO", f"Opened raw AF_PACKET IPv4/GRE (Protocol 47) receiver on {self.egress_iface} ({self.local_ip}).")
+
+    def _read_exact_tcp_ctrl(self, timeout: float = 6.0) -> bytes:
+        deadline = time.time() + timeout
+        buf = bytearray()
+        while len(buf) < 2:
+            rem = deadline - time.time()
+            if rem <= 0:
+                raise TimeoutError("Timed out waiting for PPTP control response on TCP 1723.")
+            self.tcp_sock.settimeout(rem)
+            chunk = self.tcp_sock.recv(2 - len(buf))
+            if not chunk:
+                raise ConnectionError("MikroTik closed PPTP TCP 1723 control connection.")
+            buf.extend(chunk)
+        msg_len = struct.unpack_from("!H", buf, 0)[0]
+        if msg_len < 12 or msg_len > 1024:
+            raise ValueError(f"Invalid PPTP control message length: {msg_len}")
+        while len(buf) < msg_len:
+            rem = deadline - time.time()
+            if rem <= 0:
+                raise TimeoutError("Timed out reading PPTP control packet body.")
+            self.tcp_sock.settimeout(rem)
+            chunk = self.tcp_sock.recv(msg_len - len(buf))
+            if not chunk:
+                raise ConnectionError("MikroTik closed PPTP TCP 1723 while sending control packet.")
+            buf.extend(chunk)
+        return bytes(buf)
+
+    def _drain_tcp_control(self):
+        while len(self.rx_tcp_buf) >= 2:
+            msg_len = struct.unpack_from("!H", self.rx_tcp_buf, 0)[0]
+            if msg_len < 12 or msg_len > 1024:
+                self.rx_tcp_buf.clear()
+                return
+            if len(self.rx_tcp_buf) < msg_len:
+                return
+            msg = bytes(self.rx_tcp_buf[:msg_len])
+            del self.rx_tcp_buf[:msg_len]
+
+            _, _, magic, ctrl_type = struct.unpack_from("!HHIH", msg, 0)
+            if magic != PPTP_MAGIC:
+                continue
+            if ctrl_type == PPTP_ECHO_REQ and len(msg) >= 16:
+                ident = struct.unpack_from("!I", msg, 12)[0]
+                reply = struct.pack("!HHIHHIBBH", 20, 1, PPTP_MAGIC, PPTP_ECHO_REP, 0, ident, 1, 0, 0)
+                try:
+                    self._send_tcp_all(reply)
+                except OSError:
+                    pass
+            elif ctrl_type == PPTP_CDN:
+                self._on_fatal("MikroTik sent PPTP Call-Disconnect-Notify (CDN).")
+            elif ctrl_type == PPTP_STOP_CCRQ:
+                try:
+                    rep = struct.pack("!HHIHHBBH", 16, 1, PPTP_MAGIC, PPTP_STOP_CCRP, 0, 1, 0, 0)
+                    self._send_tcp_all(rep)
+                except OSError:
+                    pass
+                self._on_fatal("MikroTik sent PPTP Stop-Control-Connection-Request.")
+
+    def run(self):
+        try:
+            self.server_ip = socket.gethostbyname(self.host)
+            self.server_ip_bytes = socket.inet_aton(self.server_ip)
+        except OSError as exc:
+            emit({"event": "ERROR", "message": f"DNS resolution failed for {self.host}: {exc}"})
+            return
+
+        try:
+            log("PPTP_HANDSHAKE", "INFO", f"Connecting TCP {self.port} to {self.server_ip} (RFC 2637 PPTP)...")
+            self.tcp_sock = socket.create_connection((self.server_ip, self.port), timeout=6.0)
+            self.local_ip = self.tcp_sock.getsockname()[0]
+
+            # 1. SCCRQ -> SCCRP
+            self.tcp_sock.sendall(build_pptp_sccrq())
+            sccrp = self._read_exact_tcp_ctrl(6.0)
+            if len(sccrp) < 28:
+                raise ValueError("Short PPTP SCCRP packet received.")
+            _, _, magic, ctrl_type = struct.unpack_from("!HHIH", sccrp, 0)
+            if magic != PPTP_MAGIC or ctrl_type != PPTP_SCCRP:
+                raise ValueError(f"Expected PPTP SCCRP (type 2), got type {ctrl_type}.")
+            res_code = sccrp[14]
+            if res_code != 1:
+                raise RuntimeError(f"MikroTik rejected PPTP SCCRQ (result_code={res_code}, err={sccrp[15]}).")
+            peer_host = sccrp[28:92].split(b"\x00", 1)[0].decode("utf-8", errors="ignore").strip()
+            peer_vendor = sccrp[92:156].split(b"\x00", 1)[0].decode("utf-8", errors="ignore").strip()
+            log(
+                "PPTP_HANDSHAKE",
+                "INFO",
+                f"✓ PPTP SCCRP OK from {peer_host or self.server_ip} ({peer_vendor or 'MikroTik'}) — sending OCRQ (Call ID {self.local_call_id})...",
+            )
+
+            # 2. OCRQ -> OCRP
+            self.tcp_sock.sendall(build_pptp_ocrq(self.local_call_id, self.call_serial))
+            ocrp = self._read_exact_tcp_ctrl(6.0)
+            if len(ocrp) < 32:
+                raise ValueError("Short PPTP OCRP packet received.")
+            _, _, magic, ctrl_type = struct.unpack_from("!HHIH", ocrp, 0)
+            if magic != PPTP_MAGIC or ctrl_type != PPTP_OCRP:
+                raise ValueError(f"Expected PPTP OCRP (type 8), got type {ctrl_type}.")
+            self.peer_call_id, _echo_call, call_res, call_err = struct.unpack_from("!HHBB", ocrp, 12)
+            if call_res != 1:
+                raise RuntimeError(f"MikroTik rejected PPTP Outgoing-Call-Request (result={call_res}, err={call_err}).")
+            log(
+                "PPTP_HANDSHAKE",
+                "INFO",
+                f"✓ PPTP OCRP Connected! Local Call ID: {self.local_call_id} <-> Peer Call ID: {self.peer_call_id}. Starting Enhanced GRE (IP Proto 47) + PPP...",
+            )
+
+            # Send Set-Link-Info (SLI) to clear ACCM masks cleanly
+            sli = struct.pack("!HHIHHHHII", 24, 1, PPTP_MAGIC, PPTP_SLI, 0, self.peer_call_id, 0, 0xFFFFFFFF, 0xFFFFFFFF)
+            self.tcp_sock.sendall(sli)
+            self.tcp_sock.setblocking(False)
+
+            # 3. Open Raw GRE TX + RX sockets & start PPP (LCP -> MS-CHAPv2/CHAP/PAP -> IPCP)
+            self._open_gre_sockets()
+            self.ppp = PppEngine(self.username, self.password, self.send_ppp_data, self._on_ipcp_up, self._on_fatal)
+            self.stage = "PPP"
+            self.ppp.start()
+
+            ppp_start_ts = time.time()
+            last_stats = ppp_start_ts
+            last_echo_ts = ppp_start_ts
+
+            while self.running:
+                rlist = [self.tcp_sock, self.gre_rx]
+                if self.tun.fd is not None:
+                    rlist.append(self.tun.fd)
+                readable, _, _ = select.select(rlist, [], [], 0.15)
+
+                for fd in readable:
+                    if fd == self.tcp_sock:
+                        while True:
+                            try:
+                                chunk = self.tcp_sock.recv(4096)
+                                if not chunk:
+                                    self._on_fatal("MikroTik closed PPTP TCP 1723 control channel.")
+                                    break
+                                self.rx_tcp_buf.extend(chunk)
+                            except BlockingIOError:
+                                break
+                            except OSError as exc:
+                                self._on_fatal(f"PPTP TCP error: {exc}")
+                                break
+                        self._drain_tcp_control()
+                    elif fd == self.gre_rx:
+                        while True:
+                            try:
+                                pkt = self.gre_rx.recv(4096)
+                            except BlockingIOError:
+                                break
+                            except OSError:
+                                break
+                            parsed = parse_ipv4_gre_packet(pkt, self.server_ip_bytes, self.local_call_id)
+                            if parsed is None:
+                                continue
+                            seq, _ack, ppp_payload = parsed
+                            if seq is not None:
+                                self.last_rx_seq = seq
+                                self.gre_ack_needed = True
+                            if ppp_payload:
+                                self.gre_rx_packets += 1
+                                self.bytes_in += len(ppp_payload)
+                                self.packets_in += 1
+                                self.ppp.handle_frame(ppp_payload, self.tun)
+                        # Send pure GRE ACK if peer sent data and we didn't piggyback an ACK yet
+                        if self.gre_ack_needed and self.running:
+                            self._send_gre(b"", include_seq=False)
+                    elif self.tun.fd is not None and fd == self.tun.fd:
+                        ip_pkt = self.tun.read_packet()
+                        if ip_pkt:
+                            self.send_ppp_data(b"\xff\x03\x00\x21" + ip_pkt)
+
+                now = time.time()
+                if self.stage in ("PPP", "UP"):
+                    self.ppp.tick()
+
+                # Keep PPTP TCP control channel alive
+                if self.stage == "UP" and (now - last_echo_ts) >= 25.0:
+                    last_echo_ts = now
+                    echo_req = struct.pack("!HHIHHI", 16, 1, PPTP_MAGIC, PPTP_ECHO_REQ, 0, int(now) & 0xFFFFFFFF)
+                    try:
+                        self._send_tcp_all(echo_req)
+                    except OSError:
+                        pass
+
+                # Honest GRE Protocol 47 timeout diagnosis
+                if self.stage == "PPP" and self.gre_rx_packets == 0 and (now - ppp_start_ts) > 8.5:
+                    self._on_fatal(
+                        f"PPTP TCP 1723 SCCRP+OCRP succeeded (Peer Call ID {self.peer_call_id}) and {self.gre_tx_packets} Enhanced GRE (IP Proto 47) LCP packets were sent to {self.server_ip}, "
+                        f"but 0 GRE packets returned! Cloud Run external NAT / firewall dropped incoming GRE Protocol 47. "
+                        f"Download & run the Windows Desktop App (.exe) on your PC (no Cloud NAT) for direct PPTP, OR switch protocol to L2TP/SSTP here."
+                    )
+                    break
+
+                if self.stage == "PPP" and (now - ppp_start_ts) > 20.0:
+                    self._on_fatal("PPTP PPP handshake timed out after GRE frames were exchanged.")
+                    break
+
+                if self.stage == "UP" and (now - last_stats) >= 2.0:
+                    last_stats = now
+                    emit({
+                        "event": "STATS",
+                        "bytesIn": self.bytes_in,
+                        "bytesOut": self.bytes_out,
+                        "packetsIn": self.packets_in,
+                        "packetsOut": self.packets_out,
+                    })
+        except Exception as exc:
+            self.fatal_error = str(exc)
+        finally:
+            try:
+                if self.tcp_sock:
+                    self.tcp_sock.setblocking(True)
+                    self.tcp_sock.settimeout(1.0)
+                    if self.peer_call_id:
+                        ccr = struct.pack("!HHIHHHH", 16, 1, PPTP_MAGIC, PPTP_CCR, 0, self.local_call_id, 0)
+                        self.tcp_sock.sendall(ccr)
+                    stop_req = struct.pack("!HHIHHBBH", 16, 1, PPTP_MAGIC, PPTP_STOP_CCRQ, 0, 1, 0, 0)
+                    self.tcp_sock.sendall(stop_req)
+            except Exception:
+                pass
+            self.tun.close()
+            for s in (self.raw_tx, self.gre_rx, self.tcp_sock):
+                if s:
+                    try:
+                        s.close()
+                    except OSError:
+                        pass
+            if self.fatal_error:
+                emit({"event": "ERROR", "message": self.fatal_error})
+            else:
+                emit({"event": "DISCONNECTED", "message": "PPTP tunnel disconnected cleanly."})
+
+
 def main():
     raw_cfg = sys.stdin.read()
     cfg = json.loads(raw_cfg)
-    proto = str(cfg.get("protocol", "l2tp")).lower()
+    proto = str(cfg.get("protocol", "pptp")).lower()
     host = str(cfg["host"]).strip()
-    port = int(cfg.get("port") or (443 if proto == "sstp" else 1701))
+    default_port = 1723 if proto == "pptp" else (443 if proto == "sstp" else 1701)
+    port = int(cfg.get("port") or default_port)
     username = str(cfg.get("username") or "").strip()
     password = str(cfg.get("password") or "")
     subnets = cfg.get("subnets") or ["0.0.0.0/0"]
 
-    if proto == "sstp":
+    if proto == "pptp":
+        client = PptpClient(host, port, username, password, subnets)
+    elif proto == "sstp":
         client = SstpClient(host, port, username, password, subnets)
     else:
         client = L2tpClient(host, port, username, password, subnets)

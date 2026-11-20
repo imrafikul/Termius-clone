@@ -4,6 +4,7 @@ import express, { Request, Response } from 'express';
 import net from 'net';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import dns from 'dns';
 import { execFile, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
@@ -1078,16 +1079,15 @@ app.post('/api/vpn/connect', async (req: Request, res: Response) => {
       }
     }
 
-    if (cleanProto === 'pptp') {
-      const msg =
-        'PPTP GRE (Protocol 47) is blocked inside cloud Linux containers. Use L2TP/SSTP here OR run the Windows Desktop App (.exe) for native PPTP!';
-      realVpnState.status = 'ERROR';
-      realVpnState.error = msg;
-      pushVpnLog('GRE', 'ERROR', msg);
-      return res.status(400).json({ connected: false, status: 'ERROR', error: msg, logs: realVpnState.logs });
+    let daemonPath = path.join(__dirname, 'vpn_tunnel_daemon.py');
+    if (!fs.existsSync(daemonPath)) {
+      const embeddedDaemon = (globalThis as any).__EMBEDDED_VPN_DAEMON_PY__;
+      if (typeof embeddedDaemon === 'string' && embeddedDaemon.length > 0) {
+        const tmpDaemon = path.join(os.tmpdir(), 'universal_webui_vpn_daemon.py');
+        fs.writeFileSync(tmpDaemon, embeddedDaemon, { mode: 0o700 });
+        daemonPath = tmpDaemon;
+      }
     }
-
-    const daemonPath = path.join(__dirname, 'vpn_tunnel_daemon.py');
     const proc = spawn('python3', ['-u', daemonPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -1119,7 +1119,9 @@ app.post('/api/vpn/connect', async (req: Request, res: Response) => {
       const connectTimer = setTimeout(() => {
         if (realVpnState.status !== 'CONNECTED') {
           const msg =
-            cleanProto === 'l2tp'
+            cleanProto === 'pptp'
+              ? `PPTP (TCP ${targetPort} + GRE 47) timed out on ${cleanHost}. Check MikroTik /interface pptp-server server set enabled=yes and firewall (TCP 1723 + Protocol 47), or run the Windows Desktop App (.exe) on your PC.`
+              : cleanProto === 'l2tp'
               ? `L2TP UDP ${targetPort} connection timed out on ${cleanHost}. Enable L2TP on MikroTik: /interface l2tp-server server set enabled=yes use-ipsec=no`
               : `SSTP TCP ${targetPort} connection timed out on ${cleanHost}. Enable SSTP on MikroTik: /interface sstp-server server set enabled=yes`;
           realVpnState.status = 'ERROR';
@@ -1130,7 +1132,7 @@ app.post('/api/vpn/connect', async (req: Request, res: Response) => {
           } catch {}
           finish(false, msg);
         }
-      }, 15000);
+      }, 18000);
 
       proc.stdout.on('data', (chunk: Buffer) => {
         stdoutBuf += chunk.toString('utf8');

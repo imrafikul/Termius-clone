@@ -15,7 +15,6 @@ import { OfflineIndicator } from './components/OfflineIndicator';
 import { ConnectionState, ConnectionStats, NetworkLogEntry, VpnProfile, VpnProtocol } from './types/vpn';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import {
-  probePptpServer,
   isPrivateIp,
   connectRealVpnTunnel,
   disconnectRealVpnTunnel,
@@ -118,13 +117,13 @@ function AppContent() {
     });
   }, []);
 
-  // Real L2TPv2 / MS-SSTP (Cloud/Linux) & Native PPTP/L2TP/SSTP (Windows Desktop .exe)
+  // Real PPTP (RFC 2637 TCP 1723 + GRE 47 / Windows RAS), L2TPv2 (UDP 1701) & MS-SSTP (TCP 443)
   const startConnectionSequence = async (targetProfile?: VpnProfile, overrideProtocol?: VpnProtocol) => {
     const profile = targetProfile || activeProfile;
     if (!profile) return;
 
     const serverHost = profile.server.trim();
-    const selectedProto: VpnProtocol = overrideProtocol || profile.protocol || (nativePptpSupported ? 'pptp' : 'l2tp');
+    const selectedProto: VpnProtocol = overrideProtocol || profile.protocol || 'pptp';
 
     if (!isStandaloneApp && !nativePptpSupported && isPrivateIp(serverHost)) {
       const msg = `Cannot reach private LAN IP (${serverHost}) from cloud web server. Enter your MikroTik's PUBLIC IP in the Profile, or run the Windows Desktop App (.exe) locally.`;
@@ -142,157 +141,72 @@ function AppContent() {
       return;
     }
 
-    // 1. REAL VPN TUNNEL — L2TP/SSTP everywhere + Native PPTP inside Windows Desktop App (.exe)
-    if (selectedProto === 'l2tp' || selectedProto === 'sstp' || (selectedProto === 'pptp' && nativePptpSupported)) {
-      const defaultPort = selectedProto === 'pptp' ? 1723 : selectedProto === 'sstp' ? 443 : 1701;
-      const targetPort =
-        selectedProto === 'pptp'
-          ? profile.port || 1723
-          : profile.port && profile.port !== 1723
-          ? profile.port
-          : defaultPort;
+    const defaultPort = selectedProto === 'pptp' ? 1723 : selectedProto === 'sstp' ? 443 : 1701;
+    const targetPort =
+      selectedProto === 'pptp'
+        ? profile.port || 1723
+        : profile.port && profile.port !== 1723
+        ? profile.port
+        : defaultPort;
 
-      setConnectionState('CONNECTING_TCP');
-      addLog(
-        'CONTROL',
-        'INFO',
-        `Connecting REAL ${selectedProto.toUpperCase()} VPN tunnel to ${serverHost}:${targetPort} as PPP user "${profile.username}" (no MikroTik admin login required)...`
-      );
-
-      try {
-        setConnectionState('AUTHENTICATING');
-        const res = await connectRealVpnTunnel({
-          protocol: selectedProto,
-          host: serverHost,
-          port: targetPort,
-          username: profile.username,
-          password: profile.password,
-          subnets: profile.remoteSubnets,
-        });
-
-        if (Array.isArray(res.logs)) {
-          // Append real daemon logs in chronological order
-          [...res.logs].reverse().forEach((entry) => {
-            addLog(
-              (entry.component as NetworkLogEntry['component']) || 'SYSTEM',
-              (entry.level as NetworkLogEntry['level']) || 'INFO',
-              entry.message
-            );
-          });
-        }
-
-        if (res.connected && res.clientIp) {
-          setConnectionState('CONNECTED');
-          setConnectionStats((prev) => ({
-            ...prev,
-            uptimeSeconds: 0,
-            bytesIn: res.bytesIn || 0,
-            bytesOut: res.bytesOut || 0,
-            packetsIn: res.packetsIn || 0,
-            packetsOut: res.packetsOut || 0,
-            assignedTunnelIp: res.clientIp,
-            remoteGatewayIp: res.gatewayIp || serverHost,
-            activeRoutes: res.routes || [],
-            iface: res.iface || 'vpn0',
-            dnsIp: res.dnsIp || '',
-            activeProtocol: selectedProto,
-            pptpTunnelConnected: true,
-            pptpPortVerified: true,
-            jumpGatewayReady: false,
-            mikrotikIdentity: `${serverHost} (${selectedProto.toUpperCase()})`,
-            lastError: undefined,
-          }));
-          addLog(
-            'TUN',
-            'INFO',
-            `✓ REAL ${selectedProto.toUpperCase()} VPN ONLINE! Assigned IP: ${res.clientIp} · Gateway: ${res.gatewayIp} · MikroTik /ppp active is LIVE! Ping, Traceroute & Telnet to private IPs now route directly via ${res.iface || 'vpn0'}.`
-          );
-        } else {
-          const errMsg =
-            res.error ||
-            `${selectedProto.toUpperCase()} connection failed on ${serverHost}:${targetPort}.`;
-          setConnectionState('ERROR');
-          setConnectionStats((prev) => ({
-            ...prev,
-            uptimeSeconds: 0,
-            assignedTunnelIp: '',
-            remoteGatewayIp: serverHost,
-            activeRoutes: [],
-            activeProtocol: null,
-            pptpTunnelConnected: false,
-            jumpGatewayReady: false,
-            lastError: errMsg,
-          }));
-          addLog('CONTROL', 'ERROR', errMsg);
-        }
-      } catch (err: any) {
-        const msg = `${selectedProto.toUpperCase()} VPN error: ${err?.message || 'Network error'}`;
-        setConnectionState('ERROR');
-        setConnectionStats((prev) => ({
-          ...prev,
-          uptimeSeconds: 0,
-          activeProtocol: null,
-          pptpTunnelConnected: false,
-          lastError: msg,
-        }));
-        addLog('CONTROL', 'ERROR', msg);
-      }
-      return;
-    }
-
-    // 2. PPTP (TCP 1723) — Honest Probe (Web/Cloud blocks GRE 47; real PPTP requires Native APK/OS)
-    const pptpPort = profile.port || 1723;
     setConnectionState('CONNECTING_TCP');
     addLog(
       'CONTROL',
       'INFO',
-      `Probing PPTP TCP ${pptpPort} & Jump-Gateway on ${serverHost}... (Note: switch protocol to L2TP or SSTP for direct Web VPN without MikroTik login)`
+      `Connecting REAL ${selectedProto.toUpperCase()} VPN tunnel to ${serverHost}:${targetPort} as PPP user "${profile.username}" (no MikroTik admin login required)...`
     );
 
     try {
-      setConnectionState('PPTP_HANDSHAKE');
-      const probe = await probePptpServer(serverHost, pptpPort, profile.username, profile.password);
+      setConnectionState(selectedProto === 'pptp' ? 'PPTP_HANDSHAKE' : 'AUTHENTICATING');
+      const res = await connectRealVpnTunnel({
+        protocol: selectedProto,
+        host: serverHost,
+        port: targetPort,
+        username: profile.username,
+        password: profile.password,
+        subnets: profile.remoteSubnets,
+      });
 
-      if (probe.pptpVerified) {
-        addLog(
-          'CONTROL',
-          'INFO',
-          `✓ PPTP TCP ${pptpPort} replied SCCRP from "${probe.mikrotikHostName || serverHost}" (${probe.latencyMs}ms).`
-        );
-      } else {
-        addLog('CONTROL', 'ERROR', probe.error || `PPTP TCP ${pptpPort} is NOT reachable on ${serverHost}.`);
+      if (Array.isArray(res.logs)) {
+        [...res.logs].reverse().forEach((entry) => {
+          addLog(
+            (entry.component as NetworkLogEntry['component']) || 'SYSTEM',
+            (entry.level as NetworkLogEntry['level']) || 'INFO',
+            entry.message
+          );
+        });
       }
 
-      addLog(
-        'GRE',
-        'ERROR',
-        'PPTP GRE (Protocol 47) is blocked in Web/Cloud containers. Switch Protocol to L2TP (UDP 1701) or SSTP (TCP 443) for a REAL VPN tunnel from the web using the same /ppp secret, OR install the native Android APK for PPTP.'
-      );
-
-      if (probe.jumpLoginVerified) {
-        addLog(
-          'ROUTE',
-          'INFO',
-          `✓ MikroTik Jump-Gateway VERIFIED ([${profile.username}@${probe.jumpIdentity || serverHost}]).`
-        );
-        setConnectionState('GATEWAY_READY');
+      if (res.connected && res.clientIp) {
+        setConnectionState('CONNECTED');
         setConnectionStats((prev) => ({
           ...prev,
           uptimeSeconds: 0,
-          assignedTunnelIp: '',
-          remoteGatewayIp: serverHost,
-          activeRoutes: profile.remoteSubnets,
-          rttMs: probe.jumpTelnetLatencyMs || probe.latencyMs || 0,
-          activeProtocol: null,
-          pptpTunnelConnected: false,
-          pptpPortVerified: probe.pptpVerified,
-          jumpGatewayReady: true,
-          mikrotikIdentity: probe.jumpIdentity || probe.mikrotikHostName || serverHost,
+          bytesIn: res.bytesIn || 0,
+          bytesOut: res.bytesOut || 0,
+          packetsIn: res.packetsIn || 0,
+          packetsOut: res.packetsOut || 0,
+          assignedTunnelIp: res.clientIp,
+          remoteGatewayIp: res.gatewayIp || serverHost,
+          activeRoutes: res.routes || [],
+          iface: res.iface || 'vpn0',
+          dnsIp: res.dnsIp || '',
+          activeProtocol: selectedProto,
+          pptpTunnelConnected: true,
+          pptpPortVerified: true,
+          jumpGatewayReady: false,
+          mikrotikIdentity: `${serverHost} (${selectedProto.toUpperCase()})`,
           lastError: undefined,
         }));
+        addLog(
+          'TUN',
+          'INFO',
+          `✓ REAL ${selectedProto.toUpperCase()} VPN ONLINE! Assigned IP: ${res.clientIp} · Gateway: ${res.gatewayIp} · MikroTik /ppp active is LIVE! Ping, Traceroute & Telnet to private IPs now route directly via ${res.iface || 'vpn0'}.`
+        );
       } else {
-        const failReason =
-          'PPTP (GRE 47) cannot connect from Web. Select L2TP (UDP 1701) or SSTP (TCP 443) to connect directly with your /ppp secret (no MikroTik admin login needed!), or use Android APK for PPTP.';
+        const errMsg =
+          res.error ||
+          `${selectedProto.toUpperCase()} connection failed on ${serverHost}:${targetPort}.`;
         setConnectionState('ERROR');
         setConnectionStats((prev) => ({
           ...prev,
@@ -300,24 +214,21 @@ function AppContent() {
           assignedTunnelIp: '',
           remoteGatewayIp: serverHost,
           activeRoutes: [],
-          rttMs: probe.latencyMs || 0,
           activeProtocol: null,
           pptpTunnelConnected: false,
-          pptpPortVerified: probe.pptpVerified,
           jumpGatewayReady: false,
-          mikrotikIdentity: probe.mikrotikHostName || undefined,
-          lastError: failReason,
+          lastError: errMsg,
         }));
+        addLog('CONTROL', 'ERROR', errMsg);
       }
     } catch (err: any) {
-      const msg = `Probe failed: ${err?.message || 'Network error'}`;
+      const msg = `${selectedProto.toUpperCase()} VPN error: ${err?.message || 'Network error'}`;
       setConnectionState('ERROR');
       setConnectionStats((prev) => ({
         ...prev,
         uptimeSeconds: 0,
         activeProtocol: null,
         pptpTunnelConnected: false,
-        jumpGatewayReady: false,
         lastError: msg,
       }));
       addLog('CONTROL', 'ERROR', msg);

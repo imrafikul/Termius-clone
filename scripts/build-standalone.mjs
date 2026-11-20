@@ -54,10 +54,15 @@ function walkDist(dir, relBase = '') {
 walkDist(DIST_DIR);
 console.log(`Embedded ${Object.keys(assets).length} frontend assets from dist/`);
 
+const vpnDaemonPy = fs.existsSync(path.join(ROOT, 'vpn_tunnel_daemon.py'))
+  ? fs.readFileSync(path.join(ROOT, 'vpn_tunnel_daemon.py'), 'utf-8')
+  : '';
+
 const entryTs = `// Auto-generated standalone desktop executable entry
 process.env.NODE_ENV = 'production';
 process.env.STANDALONE_DESKTOP = 'true';
 (globalThis as any).__EMBEDDED_DIST_ASSETS__ = ${JSON.stringify(assets)};
+(globalThis as any).__EMBEDDED_VPN_DAEMON_PY__ = ${JSON.stringify(vpnDaemonPy)};
 await import('../server.ts');
 `;
 

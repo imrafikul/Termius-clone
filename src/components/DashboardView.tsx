@@ -93,7 +93,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     connectionState === 'AUTHENTICATING' ||
     connectionState === 'IPCP_CONFIG';
 
-  const activeProtocol = activeProfile?.protocol || 'l2tp';
+  const activeProtocol = activeProfile?.protocol || 'pptp';
 
   const isFullTunnel =
     activeProfile?.routingMode === 'full' ||
@@ -448,34 +448,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 ) : (
                   <>
                     <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>{activeProtocol === 'pptp' ? 'Probe PPTP' : `Connect ${activeProtocol.toUpperCase()} VPN`}</span>
+                    <span>{`Connect ${activeProtocol.toUpperCase()} VPN`}</span>
                   </>
                 )}
               </button>
             </div>
           </div>
 
-          {/* 1-Click VPN Protocol Selector (L2TP / SSTP work REAL from Web without MikroTik Admin Login!) */}
+          {/* 1-Click VPN Protocol Selector (Real PPTP RFC 2637 / L2TPv2 / MS-SSTP — No MikroTik Admin Login Needed!) */}
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
             {(
               [
                 {
+                  id: 'pptp',
+                  title: 'PPTP (TCP 1723)',
+                  badge: 'Real GRE 47 ✓',
+                  desc: 'RFC 2637 PPTP + Enhanced GRE 47 + MS-CHAPv2 (Desktop .exe-তে Windows Native RAS)',
+                },
+                {
                   id: 'l2tp',
                   title: 'L2TP (UDP 1701)',
-                  badge: 'Web Live ✓',
-                  desc: 'একই /ppp secret · MikroTik লগইন ছাড়াই Direct Ping/Trace/Telnet',
+                  badge: 'Web + PC ✓',
+                  desc: 'একই /ppp secret · Cloud NAT থাকলেও সরাসরি Direct Ping/Trace/Telnet',
                 },
                 {
                   id: 'sstp',
                   title: 'SSTP (TCP 443)',
-                  badge: 'Web Live ✓',
-                  desc: 'TLS টানেল · একই /ppp secret · ফায়ারওয়াল ফ্রেন্ডলি',
-                },
-                {
-                  id: 'pptp',
-                  title: 'PPTP (TCP 1723)',
-                  badge: 'APK / PC Only',
-                  desc: 'GRE 47 ওয়েবে ব্লকড · আসল PPTP-র জন্য Android APK ব্যবহার করুন',
+                  badge: 'Web + PC ✓',
+                  desc: 'TLS টানেল · একই /ppp secret · ফায়ারওয়াল ও Cloud NAT ফ্রেন্ডলি',
                 },
               ] as const
             ).map((item) => {
@@ -488,19 +488,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   onClick={() => void handleSelectProtocol(item.id)}
                   className={`p-2.5 rounded-lg border text-left transition cursor-pointer disabled:opacity-60 ${
                     selected
-                      ? item.id === 'pptp'
-                        ? 'bg-amber-50 border-amber-500 text-black'
-                        : 'bg-emerald-50 border-emerald-600 text-black'
+                      ? 'bg-emerald-50 border-emerald-600 text-black'
                       : 'bg-white border-slate-200 hover:border-black text-slate-700'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-1">
                     <span className="text-xs font-bold font-mono text-black">{item.title}</span>
-                    <span
-                      className={`text-[10px] font-bold font-mono ${
-                        item.id === 'pptp' ? 'text-amber-800' : 'text-emerald-700'
-                      }`}
-                    >
+                    <span className="text-[10px] font-bold font-mono text-emerald-700">
                       {item.badge}
                     </span>
                   </div>
@@ -510,19 +504,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             })}
           </div>
 
-          {/* Setup Tip for 1-line MikroTik Enable (No Admin Login Needed from Website!) */}
+          {/* Setup Tip for MikroTik Server Verification */}
           {!isVpnConnected && (
             <div className="mt-3 p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs text-black space-y-1">
               <div className="flex items-center gap-1.5 font-bold text-black text-[11px]">
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                 <span>
-                  {activeProtocol === 'l2tp'
+                  {activeProtocol === 'pptp'
+                    ? 'PPTP কানেক্ট করতে MikroTik-এ PPTP Server অন থাকতে হবে (TCP 1723 + GRE 47)। Cloud ওয়েব NAT যদি GRE 47 ড্রপ করে, ডাউনলোড করা Windows .exe আপনার পিসিতে রান করলে সরাসরি PPTP কানেক্ট হবে:'
+                    : activeProtocol === 'l2tp'
                     ? 'MikroTik-এ শুধু একবার L2TP Server অন রাখলেই হবে (একই PPTP ইউজার/পাসওয়ার্ড দিয়ে কানেক্ট হবে):'
-                    : activeProtocol === 'sstp'
-                    ? 'MikroTik-এ শুধু একবার SSTP Server অন রাখলেই হবে (একই PPTP ইউজার/পাসওয়ার্ড দিয়ে কানেক্ট হবে):'
-                    : 'ওয়েবে PPTP GRE 47 ব্লকড — সরাসরি Private IP Ping/Telnet করতে উপরে L2TP বা SSTP সিলেক্ট করুন, অথবা Android APK ইনস্টল করুন।'}
+                    : 'MikroTik-এ শুধু একবার SSTP Server অন রাখলেই হবে (একই PPTP ইউজার/পাসওয়ার্ড দিয়ে কানেক্ট হবে):'}
                 </span>
               </div>
+              {activeProtocol === 'pptp' && (
+                <code className="block text-[11px] font-mono bg-white border border-slate-200 rounded px-2.5 py-1.5 text-black select-all">
+                  /interface pptp-server server set enabled=yes
+                </code>
+              )}
               {activeProtocol === 'l2tp' && (
                 <code className="block text-[11px] font-mono bg-white border border-slate-200 rounded px-2.5 py-1.5 text-black select-all">
                   /interface l2tp-server server set enabled=yes use-ipsec=no

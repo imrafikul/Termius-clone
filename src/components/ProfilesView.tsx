@@ -51,9 +51,9 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
   }, [externalOpenAddModal]);
 
   const [formName, setFormName] = useState('');
-  const [formProtocol, setFormProtocol] = useState<'l2tp' | 'sstp' | 'pptp'>('l2tp');
+  const [formProtocol, setFormProtocol] = useState<'l2tp' | 'sstp' | 'pptp'>('pptp');
   const [formHost, setFormHost] = useState('');
-  const [formPort, setFormPort] = useState(1701);
+  const [formPort, setFormPort] = useState(1723);
   const [formUsername, setFormUsername] = useState('');
   const [formPassword, setFormPassword] = useState('');
   const [formRoutingMode, setFormRoutingMode] = useState<'full' | 'split'>('full');
@@ -65,23 +65,23 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
   const openAddModal = () => {
     setEditingProfile(null);
     setFormName('');
-    setFormProtocol('l2tp');
+    setFormProtocol('pptp');
     setFormHost('');
-    setFormPort(1701);
+    setFormPort(1723);
     setFormUsername('');
     setFormPassword('');
     setFormRoutingMode('full');
     setFormSubnets('0.0.0.0/0');
     setFormMtu(1400);
     setFormMppe('mppe-128');
-    setFormTags('MikroTik, L2TP VPN');
+    setFormTags('MikroTik, PPTP VPN');
     setSubnetError(null);
     setIsModalOpen(true);
   };
 
   const openEditModal = (profile: VpnProfile) => {
     setEditingProfile(profile);
-    const proto = profile.protocol || 'l2tp';
+    const proto = profile.protocol || 'pptp';
     setFormName(profile.name);
     setFormProtocol(proto);
     setFormHost(profile.server);
@@ -326,7 +326,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
                     onClick={() => onConnectProfile(profile)}
                     className="px-3 py-1 text-xs font-bold rounded bg-black hover:bg-slate-800 text-white cursor-pointer transition-colors"
                   >
-                    {isActive && isConnected ? 'Connected' : `Connect ${(profile.protocol || 'l2tp').toUpperCase()}`}
+                    {isActive && isConnected ? 'Connected' : `Connect ${(profile.protocol || 'pptp').toUpperCase()}`}
                   </button>
                 </div>
               </div>
