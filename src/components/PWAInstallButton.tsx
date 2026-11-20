@@ -47,7 +47,7 @@ function triggerBlobSave(blob: Blob, filename: string) {
 }
 
 export const PWAInstallButton: React.FC<Props> = ({ variant = 'header', className = '' }) => {
-  const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
+  const { isInstallable, isIOS, install } = usePWAInstall();
   const [showIOSModal, setShowIOSModal] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -357,37 +357,6 @@ export const PWAInstallButton: React.FC<Props> = ({ variant = 'header', classNam
                   ? `Downloading ${dlState.percent}%`
                   : 'Download Desktop App'}
               </span>
-            </button>
-            {!isInstalled ? (
-              <button
-                type="button"
-                onClick={handleInstallClick}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-black bg-white hover:bg-slate-100 text-black font-semibold text-xs transition-all active:scale-95 cursor-pointer whitespace-nowrap"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>{isIOS ? 'Install iPhone' : 'Install Mobile App'}</span>
-              </button>
-            ) : (
-              <span className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold whitespace-nowrap">
-                <CheckCircle className="w-3.5 h-3.5 text-emerald-700" />
-                <span>PWA Installed</span>
-              </span>
-            )}
-            <button
-              type="button"
-              disabled={dlState?.active}
-              onClick={() =>
-                startSimpleZipDownload(
-                  '/api/download-zip',
-                  'universal_webui_network_engineer_app.zip',
-                  'Android / Flutter App ZIP'
-                )
-              }
-              className="px-3 py-2 rounded-lg border border-slate-300 hover:border-black bg-white hover:bg-slate-100 text-black text-xs font-mono font-semibold flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap"
-              title="Download Android Kotlin/Flutter App Source + Auto APK Builder (.zip)"
-            >
-              <Package className="w-3.5 h-3.5" />
-              <span>Android ZIP</span>
             </button>
           </div>
         </div>

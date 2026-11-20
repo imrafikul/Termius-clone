@@ -10,14 +10,11 @@ import {
   Sliders,
   Cpu,
   Plus,
-  Download,
   Terminal,
   Lock,
   Globe,
   RefreshCw,
   Sparkles,
-  HelpCircle,
-  Key,
   Zap,
   Gauge,
   Route,
@@ -31,7 +28,6 @@ import {
 } from 'lucide-react';
 import { ConnectionState, ConnectionStats, NetworkLogEntry, VpnProfile } from '../types/vpn';
 import { PWAInstallButton } from './PWAInstallButton';
-import { ApkGuideModal } from './ApkGuideModal';
 import { useAuth } from '../context/AuthContext';
 import { fetchRealClientIp } from '../services/api';
 
@@ -64,7 +60,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 }) => {
   const { user, loginWithGoogle, logout, license, updateProfile } = useAuth();
   const [testIpInput, setTestIpInput] = useState('8.8.8.8');
-  const [showApkGuide, setShowApkGuide] = useState(false);
   const [realVisitorIp, setRealVisitorIp] = useState<string>('Checking...');
   const [testResult, setTestResult] = useState<{
     routeMatched: string;
@@ -385,39 +380,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="text-sm font-bold text-black">Packet Tracer CLI</div>
           <div className="text-[11px] text-slate-600 mt-0.5">Graphical IP to Brand/OS CLI</div>
         </button>
-      </div>
-
-      {/* GitHub APK Download Notice */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-black">
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 shrink-0">
-            <Key className="w-4 h-4" />
-          </div>
-          <div>
-            <span className="font-bold text-black">GitHub থেকে আসল APK ডাউনলোড করার নিয়ম: </span>
-            <span className="text-slate-700">
-              যেহেতু আপনি Git Push করেছেন, GitHub Actions আপনার ফোনের জন্য <strong>app-release.apk</strong> তৈরি করে রেখেছে। স্ট্যাটাস বারে চাবি (🔑) আইকন ও আসল আইপি চেঞ্জের জন্য এপিকে নামিয়ে নিন।
-            </span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <a
-            href="https://github.com/imrafikul/Termius-clone/releases"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black hover:bg-slate-800 text-white font-bold text-xs transition cursor-pointer whitespace-nowrap"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Click to Download APK</span>
-          </a>
-          <button
-            onClick={() => setShowApkGuide(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-black border border-slate-300 font-semibold text-xs transition cursor-pointer whitespace-nowrap"
-          >
-            <HelpCircle className="w-3.5 h-3.5 text-slate-700" />
-            <span>নিয়মাবলী</span>
-          </button>
-        </div>
       </div>
 
       {/* Account Isolation & 1-Month Trial Status */}
@@ -1020,9 +982,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           ))}
         </div>
       </div>
-
-      {/* APK vs Web Explanation Modal */}
-      <ApkGuideModal isOpen={showApkGuide} onClose={() => setShowApkGuide(false)} />
     </div>
   );
 };
