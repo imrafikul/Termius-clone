@@ -10,6 +10,7 @@ import { AdminPanelView } from './components/AdminPanelView';
 import { TopologyBuilderView } from './components/TopologyBuilderView';
 import ProVendorWebUiHub, { ProVendorId } from './components/ProVendorWebUiHub';
 import { DeviceWebUiView } from './components/DeviceWebUiView';
+import { PublicHomeScreen } from './components/PublicHomeScreen';
 import { PWAUpdateToast } from './components/PWAUpdateToast';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { ConnectionState, ConnectionStats, NetworkLogEntry, VpnProfile, VpnProtocol } from './types/vpn';
@@ -56,6 +57,8 @@ function AppContent() {
   } | null>(null);
   const {
     user,
+    loading: authLoading,
+    loginWithGoogle,
     profiles,
     activeProfileId,
     setActiveProfileId,
@@ -568,18 +571,25 @@ function AppContent() {
         </div>
       )}
 
-      {/* 3-Zone Top Navigation Contract */}
-      <Header
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        connectionState={connectionState}
-        activeProfile={activeProfile}
-        onToggleConnect={handleToggleConnect}
-        onOpenAddProfile={handleOpenAddProfile}
-      />
+      {!user ? (
+        <PublicHomeScreen
+          onLoginWithGoogle={loginWithGoogle}
+          authLoading={authLoading}
+        />
+      ) : (
+        <>
+          {/* 3-Zone Top Navigation Contract */}
+          <Header
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            connectionState={connectionState}
+            activeProfile={activeProfile}
+            onToggleConnect={handleToggleConnect}
+            onOpenAddProfile={handleOpenAddProfile}
+          />
 
-      {/* Main Viewport */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          {/* Main Viewport */}
+          <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {activeTab === 'dashboard' && (
           <DashboardView
             profiles={profiles}
@@ -712,6 +722,8 @@ function AppContent() {
           })}
         </div>
       </nav>
+        </>
+      )}
     </div>
   );
 }

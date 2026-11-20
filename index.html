@@ -59,12 +59,85 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
-    <title>Universal WebUI for Network Engineer</title>
-    <meta name="description" content="Universal WebUI for Network Engineer — Multi-vendor OLT, Router & Switch graphical WebUI (Huawei, ZTE, BDCOM, VSOL, C-Data, MikroTik, Cisco, Juniper, Palo Alto, Arista, Ruijie, TP-Link), live Telnet/SSH terminal, Command Notepad, PPTP VPN manager, and network diagnostics." />
-    <meta property="og:title" content="Universal WebUI for Network Engineer" />
-    <meta property="og:description" content="Multi-vendor OLT, Router & Switch graphical WebUI, live Telnet/SSH with interactive ? Help & Tab completion, personal Command Notepad, PPTP VPN manager, and network diagnostics." />
+    <title>Universal WebUI for Network Engineer – OLT &amp; Router GUI</title>
+    <meta
+      name="description"
+      content="Universal WebUI for Network Engineer: Unified Web Interface & Multi-Vendor OLT, Router & Switch WebUI for Huawei, MikroTik, BDCOM, VSOL, Cisco. Secured by Google Firebase."
+    />
+    <meta
+      name="keywords"
+      content="Universal WebUI for Network Engineer, Multi-Vendor OLT WebUI, Router WebUI, Switch WebUI, Unified Web Interface, Huawei OLT GUI, MikroTik RouterOS v7 WebUI, BDCOM OLT, VSOL OLT, Cisco, Juniper, Network Engineer, merafikul"
+    />
+    <meta name="author" content="Rafikul Islam (https://t.me/merafikul)" />
+    <meta name="robots" content="index, follow" />
+
+    <!-- OpenGraph Social Card -->
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Universal WebUI for Network Engineer" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="Universal WebUI for Network Engineer – OLT &amp; Router GUI" />
+    <meta
+      property="og:description"
+      content="Unified Web Interface & Multi-Vendor OLT, Router & Switch WebUI for Huawei, MikroTik, BDCOM, VSOL, ZTE, Cisco & more. Secured by Google Firebase."
+    />
+    <meta property="og:image" content="/pwa-512x512.png" />
+
+    <!-- Twitter / X Social Card -->
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Universal WebUI for Network Engineer – OLT &amp; Router GUI" />
+    <meta
+      name="twitter:description"
+      content="Unified Web Interface & Multi-Vendor OLT, Router & Switch WebUI for network engineers. Secured by Google Firebase. Contact: t.me/merafikul"
+    />
+    <meta name="twitter:image" content="/pwa-512x512.png" />
+
+    <!-- Dynamic Canonical & og:url Resolution -->
+    <script>
+      (function () {
+        var currentUrl = window.location.origin + window.location.pathname;
+        var canonical = document.createElement('link');
+        canonical.setAttribute('rel', 'canonical');
+        canonical.setAttribute('href', currentUrl);
+        document.head.appendChild(canonical);
+
+        var ogUrl = document.createElement('meta');
+        ogUrl.setAttribute('property', 'og:url');
+        ogUrl.setAttribute('content', currentUrl);
+        document.head.appendChild(ogUrl);
+      })();
+    </script>
+
+    <!-- Schema.org Structured Data (JSON-LD) -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Universal WebUI for Network Engineer",
+        "alternateName": "Multi-Vendor OLT, Router & Switch WebUI",
+        "applicationCategory": "NetworkingApplication",
+        "operatingSystem": "All",
+        "description": "Unified Web Interface and Multi-Vendor OLT, Router & Switch WebUI for network engineers supporting Huawei, ZTE, BDCOM, VSOL, C-Data, MikroTik, Cisco, Juniper, Palo Alto, Arista, Ruijie, and TP-Link. Secured by Google Firebase.",
+        "featureList": [
+          "Unified Web Interface",
+          "Multi-Vendor OLT, Router & Switch WebUI",
+          "Huawei, BDCOM, VSOL, ZTE & C-Data OLT Management",
+          "MikroTik RouterOS v7, Cisco, Juniper & Palo Alto Management",
+          "Google Firebase Authentication"
+        ],
+        "author": {
+          "@type": "Person",
+          "name": "Rafikul Islam",
+          "url": "https://t.me/merafikul",
+          "sameAs": ["https://t.me/merafikul"]
+        },
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        }
+      }
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
