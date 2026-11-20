@@ -99,7 +99,7 @@ jobs:
 
       - name: Install Dependencies & Build Web Bundle
         run: |
-          npm ci
+          npm install --no-audit --no-fund
           npm run build
 
       - name: Compile Standalone Windows & Linux Binaries
