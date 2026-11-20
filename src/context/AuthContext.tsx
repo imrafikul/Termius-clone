@@ -14,6 +14,7 @@ import {
   auth,
   db,
   signInWithGoogle,
+  signInWithGoogleCredential,
   signOutUser,
   handleFirestoreError,
   isOfflineFirestoreError,
@@ -79,6 +80,8 @@ interface AuthContextType {
   syncStatus: 'synced' | 'syncing' | 'local' | 'error';
   errorMessage: string | null;
   clearError: () => void;
+  unauthorizedDomainHost: string | null;
+  dismissUnauthorizedDomain: () => void;
   // Admin Methods (Strict Main Admin Only)
   adminUsers: AdminUserRecord[];
   adminUserProfiles: Record<string, VpnProfile[]>;
@@ -137,6 +140,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [activeProfileId, setActiveProfileIdState] = useState<string>('');
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'local' | 'error'>('local');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [unauthorizedDomainHost, setUnauthorizedDomainHost] = useState<string | null>(null);
 
   // Admin state
   const [adminUsers, setAdminUsers] = useState<AdminUserRecord[]>([]);
@@ -173,6 +177,33 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     );
     return map;
   };
+
+  // Desktop Localhost Auth Bridge: consume Google OAuth credential returned in URL hash from authorized cloud portal
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.location.hash) return;
+    const rawHash = window.location.hash.replace(/^#/, '');
+    if (!rawHash.includes('desktop_auth_id_token=') && !rawHash.includes('desktop_auth_access_token=')) {
+      return;
+    }
+    const params = new URLSearchParams(rawHash);
+    const idToken = params.get('desktop_auth_id_token');
+    const accessToken = params.get('desktop_auth_access_token');
+
+    // Immediately scrub tokens from URL bar & browser history
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+
+    if (idToken || accessToken) {
+      setLoading(true);
+      setErrorMessage(null);
+      setUnauthorizedDomainHost(null);
+      signInWithGoogleCredential(idToken, accessToken).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('Desktop auth bridge sign-in failed:', msg);
+        setErrorMessage('ডেস্কটপ Google লগইন সম্পন্ন হয়নি: ' + msg);
+        setLoading(false);
+      });
+    }
+  }, []);
 
   // REAL-TIME AUTO UPDATE: Strict per-Google-account isolation on Auth & Firestore changes
   useEffect(() => {
@@ -551,10 +582,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       console.error('Google Sign-in failed:', msg);
       if (msg.includes('auth/unauthorized-domain')) {
-        const host = typeof window !== 'undefined' ? window.location.hostname : '';
-        setErrorMessage(
-          `Google Login-এর জন্য "${host}" ডোমেইনটি Firebase Console → Authentication → Settings → Authorized domains-এ যোগ করতে হবে।`
-        );
+        const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+        setUnauthorizedDomainHost(host);
+        if (host !== 'localhost' && host !== '127.0.0.1') {
+          setErrorMessage(
+            `Google Login-এর জন্য "${host}" ডোমেইনটি Firebase Console → Authentication → Settings → Authorized domains-এ যোগ করতে হবে।`
+          );
+        }
       } else {
         setErrorMessage('Google লগইন ব্যর্থ হয়েছে: ' + msg);
       }
@@ -562,6 +596,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const clearError = () => setErrorMessage(null);
+  const dismissUnauthorizedDomain = () => setUnauthorizedDomainHost(null);
 
   const logout = async () => {
     try {
@@ -1033,6 +1068,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         syncStatus,
         errorMessage,
         clearError,
+        unauthorizedDomainHost,
+        dismissUnauthorizedDomain,
         adminUsers,
         adminUserProfiles,
         adminLicenses,

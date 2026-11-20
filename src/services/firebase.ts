@@ -1,5 +1,12 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as fbSignOut, User } from 'firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithCredential,
+  signOut as fbSignOut,
+  User,
+} from 'firebase/auth';
 import {
   getFirestore,
   initializeFirestore,
@@ -55,6 +62,7 @@ try {
 
 export const db = dbInstance;
 export const auth = getAuth(app);
+export const FIREBASE_PROJECT_ID = firebaseConfig.projectId;
 
 // Automatically re-enable Firestore network transport when browser connectivity recovers
 if (typeof window !== 'undefined') {
@@ -163,6 +171,47 @@ export async function signInWithGoogle(): Promise<User | null> {
     }
     throw err;
   }
+}
+
+// Sign in with Google Popup and return raw OAuth credential tokens for localhost Desktop App bridge
+export async function signInWithGoogleForDesktopBridge(): Promise<{
+  idToken: string | null;
+  accessToken: string | null;
+  email: string | null;
+} | null> {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    const cred = GoogleAuthProvider.credentialFromResult(result);
+    return {
+      idToken: cred?.idToken || null,
+      accessToken: cred?.accessToken || null,
+      email: result.user?.email || null,
+    };
+  } catch (err: any) {
+    if (
+      err?.code === 'auth/popup-closed-by-user' ||
+      err?.code === 'auth/cancelled-popup-request' ||
+      err?.message?.includes('auth/popup-closed-by-user') ||
+      err?.message?.includes('cancelled-popup-request')
+    ) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+// Complete Google Sign-in locally (e.g., Desktop App on http://localhost:3000) using OAuth tokens
+// from the authorized cloud domain via signInWithCredential (bypasses popup unauthorized-domain restriction).
+export async function signInWithGoogleCredential(
+  idToken?: string | null,
+  accessToken?: string | null
+): Promise<User> {
+  if (!idToken && !accessToken) {
+    throw new Error('Missing Google OAuth credential token.');
+  }
+  const credential = GoogleAuthProvider.credential(idToken || null, accessToken || null);
+  const result = await signInWithCredential(auth, credential);
+  return result.user;
 }
 
 // Sign out

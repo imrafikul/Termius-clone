@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Globe, Terminal, Server, Layers, Activity } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Globe, Terminal, Server, Layers, Activity, ShieldCheck, ExternalLink, Copy, Check, X } from 'lucide-react';
 import { Header } from './components/Header';
 import { DashboardView } from './components/DashboardView';
 import { ProfilesView } from './components/ProfilesView';
@@ -14,6 +14,7 @@ import { PWAUpdateToast } from './components/PWAUpdateToast';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { ConnectionState, ConnectionStats, NetworkLogEntry, VpnProfile, VpnProtocol } from './types/vpn';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { FIREBASE_PROJECT_ID, signInWithGoogleForDesktopBridge } from './services/firebase';
 import {
   isPrivateIp,
   connectRealVpnTunnel,
@@ -21,6 +22,27 @@ import {
   getRealVpnStatus,
   fetchSystemRuntime,
 } from './services/api';
+
+const AUTHORIZED_CLOUD_PROD_URL = 'https://ais-pre-asqdovr5velabzynznrur2-605117365928.asia-southeast1.run.app';
+const AUTHORIZED_CLOUD_DEV_URL = 'https://ais-dev-asqdovr5velabzynznrur2-605117365928.asia-southeast1.run.app';
+
+function getSafeLocalhostCallbackOrigin(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = new URLSearchParams(window.location.search).get('desktop_auth_callback');
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (
+      parsed.protocol === 'http:' &&
+      (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')
+    ) {
+      return parsed.origin;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'profiles' | 'terminal' | 'webui' | 'huawei-olt' | 'topology' | 'diagnostics' | 'source' | 'admin'>('dashboard');
@@ -41,7 +63,37 @@ function AppContent() {
     deleteProfile,
     errorMessage,
     clearError,
+    unauthorizedDomainHost,
+    dismissUnauthorizedDomain,
   } = useAuth();
+
+  const desktopAuthCallbackOrigin = useMemo(() => getSafeLocalhostCallbackOrigin(), []);
+  const [bridgeBusy, setBridgeBusy] = useState(false);
+  const [bridgeError, setBridgeError] = useState<string | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
+
+  const handleDesktopBridgeSignIn = async () => {
+    if (!desktopAuthCallbackOrigin) return;
+    setBridgeBusy(true);
+    setBridgeError(null);
+    try {
+      const tokens = await signInWithGoogleForDesktopBridge();
+      if (!tokens) {
+        setBridgeBusy(false);
+        return;
+      }
+      if (!tokens.idToken && !tokens.accessToken) {
+        throw new Error('Google OAuth token was not returned by provider.');
+      }
+      const hashParams = new URLSearchParams();
+      if (tokens.idToken) hashParams.set('desktop_auth_id_token', tokens.idToken);
+      if (tokens.accessToken) hashParams.set('desktop_auth_access_token', tokens.accessToken);
+      window.location.href = `${desktopAuthCallbackOrigin}/#${hashParams.toString()}`;
+    } catch (err: unknown) {
+      setBridgeError(err instanceof Error ? err.message : String(err));
+      setBridgeBusy(false);
+    }
+  };
 
   const [connectionState, setConnectionState] = useState<ConnectionState>('DISCONNECTED');
   const [connectionStats, setConnectionStats] = useState<ConnectionStats>({
@@ -360,6 +412,55 @@ function AppContent() {
     }
   };
 
+  if (desktopAuthCallbackOrigin) {
+    return (
+      <div className="min-h-screen bg-slate-50 text-black flex items-center justify-center p-4 font-sans">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-black text-white">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-base font-bold text-black">Desktop App Google Sign-In</h1>
+              <p className="text-xs text-slate-600 font-mono">{desktopAuthCallbackOrigin}</p>
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-700 leading-relaxed">
+            আপনার লোকাল Desktop App (<span className="font-mono font-semibold">{desktopAuthCallbackOrigin}</span>)-এ আপনার নিজস্ব Google অ্যাকাউন্ট লগইন করতে নিচের বাটনে ক্লিক করুন। লগইন সফল হলে অটোমেটিক Desktop App-এ ফিরে যাবে।
+          </p>
+
+          {bridgeError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+              {bridgeError}
+            </div>
+          )}
+
+          <button
+            type="button"
+            disabled={bridgeBusy}
+            onClick={handleDesktopBridgeSignIn}
+            className="w-full py-2.5 px-4 rounded-xl bg-black hover:bg-slate-800 disabled:opacity-60 text-white font-semibold text-sm transition cursor-pointer"
+          >
+            {bridgeBusy ? 'Signing in with Google...' : 'Sign in with Google & Return to Desktop App'}
+          </button>
+
+          <a
+            href={desktopAuthCallbackOrigin}
+            className="block text-center text-xs text-slate-600 hover:text-black underline"
+          >
+            Cancel &amp; return to Desktop App
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+  const firebaseAuthSettingsUrl = `https://console.firebase.google.com/project/${FIREBASE_PROJECT_ID}/authentication/settings`;
+  const prodBridgeUrl = `${AUTHORIZED_CLOUD_PROD_URL}/?desktop_auth_callback=${encodeURIComponent(currentOrigin)}`;
+  const devBridgeUrl = `${AUTHORIZED_CLOUD_DEV_URL}/?desktop_auth_callback=${encodeURIComponent(currentOrigin)}`;
+
   return (
     <div className="min-h-screen bg-white text-black flex flex-col font-sans">
       {errorMessage && (
@@ -372,6 +473,97 @@ function AppContent() {
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {unauthorizedDomainHost && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl text-black space-y-4">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2.5">
+                <ShieldCheck className="w-5 h-5 text-black shrink-0" />
+                <div>
+                  <h3 className="font-bold text-sm text-black">
+                    Localhost / Desktop Google Login
+                  </h3>
+                  <p className="text-[11px] text-slate-600 font-mono">
+                    Domain: {unauthorizedDomainHost}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={dismissUnauthorizedDomain}
+                className="p-1 text-slate-500 hover:text-black cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {(unauthorizedDomainHost === 'localhost' || unauthorizedDomainHost === '127.0.0.1') && (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3.5 space-y-2.5">
+                <p className="text-xs font-bold text-emerald-950">
+                  ১-ক্লিকে সরাসরি লগইন করুন (Firebase Console ছাড়াই)
+                </p>
+                <p className="text-[11px] text-emerald-900 leading-relaxed">
+                  Authorized Cloud Portal-এর মাধ্যমে Google সাইন-ইন করে অটোমেটিক আপনার লোকাল Desktop App-এ ফিরে আসুন।
+                </p>
+                <a
+                  href={prodBridgeUrl}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg bg-black hover:bg-slate-800 text-white font-semibold text-xs transition"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Sign in with Google (Cloud Bridge)</span>
+                </a>
+                <a
+                  href={devBridgeUrl}
+                  className="block text-center text-[11px] text-emerald-800 hover:text-black underline font-medium"
+                >
+                  অথবা Dev Portal দিয়ে লগইন করুন
+                </a>
+              </div>
+            )}
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5 space-y-2.5">
+              <p className="text-xs font-bold text-black">
+                অথবা Firebase Console-এ স্থায়ীভাবে যোগ করুন:
+              </p>
+              <ol className="text-[11px] text-slate-700 space-y-1 list-decimal list-inside">
+                <li>নিচের বাটনে ক্লিক করে Firebase Authentication Settings খুলুন</li>
+                <li>
+                  <strong>Authorized domains → Add domain</strong>-এ গিয়ে{' '}
+                  <code className="px-1 py-0.5 bg-white border border-slate-300 rounded font-mono text-black">
+                    {unauthorizedDomainHost}
+                  </code>{' '}
+                  যোগ করুন
+                </li>
+                <li>এরপর এখানে ফিরে এসে আবার <strong>Google Login</strong> দিন</li>
+              </ol>
+              <div className="flex items-center gap-2 pt-1">
+                <a
+                  href={firebaseAuthSettingsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border border-black bg-white hover:bg-slate-100 text-black font-semibold text-xs transition"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open Firebase Console</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(unauthorizedDomainHost);
+                    setCopiedDomain(true);
+                    setTimeout(() => setCopiedDomain(false), 1800);
+                  }}
+                  className="flex items-center gap-1 py-2 px-3 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-black font-mono text-xs cursor-pointer"
+                >
+                  {copiedDomain ? <Check className="w-3.5 h-3.5 text-emerald-700" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedDomain ? 'Copied' : 'Copy'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

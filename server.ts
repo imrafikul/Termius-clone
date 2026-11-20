@@ -701,8 +701,38 @@ app.post('/api/diagnostics/port-check', async (req: Request, res: Response) => {
   }
 });
 
-// Real visitor public IP (from request headers, ZERO hardcoded fake IPs)
-app.get('/api/network/my-ip', (req: Request, res: Response) => {
+// Real visitor public IP (resolves real egress public IP when running locally on Desktop App; ZERO fake IPs)
+async function resolveLocalEgressPublicIp(): Promise<string> {
+  const endpoints = [
+    { url: 'https://api.ipify.org?format=json', parse: async (r: globalThis.Response) => ((await r.json()) as { ip?: string }).ip || '' },
+    { url: 'https://ifconfig.me/ip', parse: async (r: globalThis.Response) => (await r.text()).trim() },
+  ];
+  for (const ep of endpoints) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 3000);
+      const resp = await fetch(ep.url, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (resp.ok) {
+        const ip = (await ep.parse(resp)).trim();
+        if (/^[0-9a-fA-F:.]+$/.test(ip)) return ip;
+      }
+    } catch {
+      // try next provider
+    }
+  }
+  const nets = os.networkInterfaces();
+  for (const addrs of Object.values(nets)) {
+    for (const addr of addrs || []) {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        return addr.address;
+      }
+    }
+  }
+  return '127.0.0.1';
+}
+
+app.get('/api/network/my-ip', async (req: Request, res: Response) => {
   const forwarded = req.headers['x-forwarded-for'];
   let ip = '';
   if (typeof forwarded === 'string' && forwarded.trim()) {
@@ -712,10 +742,13 @@ app.get('/api/network/my-ip', (req: Request, res: Response) => {
   } else {
     ip = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
   }
+  if (!ip || ip === '127.0.0.1' || ip === '::1') {
+    ip = await resolveLocalEgressPublicIp();
+  }
   res.json({
     ip: ip || 'Unavailable',
-    pptpTunnelActive: false,
-    greSupportedInCloud: false,
+    pptpTunnelActive: realVpnState.status === 'CONNECTED',
+    greSupportedInCloud: process.platform === 'win32',
     timestamp: new Date().toISOString(),
   });
 });
@@ -1722,21 +1755,6 @@ ${remoteSubnets
   });
 });
 
-// Real Public IP Detection & Egress Audit Endpoint
-app.get('/api/network/my-ip', (req: Request, res: Response) => {
-  const forwarded = req.headers['x-forwarded-for'];
-  let ip = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : req.socket.remoteAddress || '103.145.88.24';
-  if (ip === '::1' || ip === '127.0.0.1' || ip.startsWith('10.') || ip.startsWith('172.') || ip.startsWith('192.168.')) {
-    ip = '103.145.88.24'; // Realistic ISP public IP for preview
-  }
-  res.json({
-    ip,
-    city: 'Dhaka',
-    country: 'Bangladesh',
-    isp: 'Local Broadband ISP',
-    timestamp: new Date().toISOString(),
-  });
-});
 
 // Native files reader endpoint
 app.get('/api/native-files', (_req: Request, res: Response) => {
