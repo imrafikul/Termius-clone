@@ -1,7 +1,7 @@
 name: pptp_solution
-description: "A production-grade Android network management app for ISP engineers and MikroTik administrators with user-space PPTP VpnService, strict split tunneling, embedded SSH terminal, and network diagnostics."
+description: "Universal WebUI for Network Engineer — Multi-vendor OLT, Router & Switch Graphical WebUI (12 brands), live Telnet/SSH terminal with ? Help & Tab completion, Personal Command Notepad, user-space PPTP VpnService, and network diagnostics."
 publish_to: 'none'
-version: 1.0.0+1
+version: 2.0.0+2
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -11,9 +11,10 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # Embedded MikroTik Terminal
+  # Embedded Multi-Vendor Terminal & USB-OTG Console Cable
   dartssh2: ^2.11.2
   xterm: ^3.7.0
+  usb_serial: ^0.5.2
 
   # Local Persistence for ISP Profiles & Preferences
   shared_preferences: ^2.2.2

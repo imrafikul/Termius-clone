@@ -519,25 +519,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                         ],
                       ),
-                      if (isConnected && active != null) ...[
+                      if (active != null) ...[
                         const SizedBox(height: 12),
                         Row(
                           children: [
                             Expanded(
                               child: OutlinedButton.icon(
                                 style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.cyanAccent,
+                                  foregroundColor: Colors.purpleAccent,
                                   side: const BorderSide(color: Color(0xFF334155)),
                                   padding: const EdgeInsets.symmetric(vertical: 10),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                 ),
                                 icon: const Icon(Icons.terminal, size: 18),
-                                label: const Text('MikroTik Terminal', style: TextStyle(fontSize: 12)),
+                                label: const Text('Telnet / SSH', style: TextStyle(fontSize: 12)),
                                 onPressed: () {
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (_) => TerminalScreen(profile: active),
+                                      builder: (_) => TerminalScreen(
+                                        profile: active,
+                                        initialProtocol: TerminalProtocol.telnet,
+                                      ),
                                     ),
                                   );
                                 },

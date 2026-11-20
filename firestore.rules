@@ -13,9 +13,11 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.email == 'rafikul18285@gmail.com' ||
-        request.auth.token.email == 'merafikulus@gmail.com' ||
-        request.auth.token.email == 'rafikulislam18285@gmail.com' ||
+        (request.auth.token.email_verified == true && (
+          request.auth.token.email == 'rafikul18285@gmail.com' ||
+          request.auth.token.email == 'merafikulus@gmail.com' ||
+          request.auth.token.email == 'rafikulislam18285@gmail.com'
+        )) ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
@@ -37,6 +39,38 @@ service cloud.firestore {
         (!('routingMode' in data) || (data.routingMode is string && (data.routingMode == 'full' || data.routingMode == 'split'))) &&
         (!('sshPort' in data) || data.sshPort is number) &&
         (!('winboxPort' in data) || data.winboxPort is number);
+    }
+
+    function isValidTerminalSession(data) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'vendor', 'protocol', 'host', 'port', 'username', 'password']) &&
+        data.keys().hasOnly(['id', 'userId', 'name', 'vendor', 'protocol', 'host', 'port', 'username', 'password', 'autoLogin', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.userId is string && (data.userId == request.auth.uid || isAdmin()) &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        data.vendor is string && (data.vendor in ['MikroTik', 'Cisco', 'Huawei', 'ZTE', 'BDCOM', 'VSOL', 'C-Data', 'Palo Alto', 'Juniper', 'Arista', 'Ruijie', 'TP-Link']) &&
+        data.protocol is string && (data.protocol == 'Telnet' || data.protocol == 'SSH') &&
+        data.host is string && data.host.size() > 0 && data.host.size() <= 255 &&
+        data.port is number && data.port >= 1 && data.port <= 65535 &&
+        data.username is string && data.username.size() <= 100 &&
+        data.password is string && data.password.size() <= 128 &&
+        (!('autoLogin' in data) || data.autoLogin is bool) &&
+        (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
+    }
+
+    function isValidCommandNote(data) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'vendor', 'category', 'commands']) &&
+        data.keys().hasOnly(['id', 'userId', 'title', 'vendor', 'category', 'commands', 'description', 'pinned', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.userId is string && (data.userId == request.auth.uid || isAdmin()) &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 120 &&
+        data.vendor is string && (data.vendor in ['All', 'MikroTik', 'Cisco', 'Huawei', 'ZTE', 'BDCOM', 'VSOL', 'C-Data', 'Palo Alto', 'Juniper', 'Arista', 'Ruijie', 'TP-Link']) &&
+        data.category is string && data.category.size() > 0 && data.category.size() <= 60 &&
+        data.commands is string && data.commands.size() > 0 && data.commands.size() <= 8000 &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 300)) &&
+        (!('pinned' in data) || data.pinned is bool) &&
+        (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
     }
 
     function isValidLicense(data) {
@@ -74,11 +108,44 @@ service cloud.firestore {
           isValidProfile(request.resource.data) &&
           (request.resource.data.userId == resource.data.userId || isAdmin());
       }
+
+      // Isolated Saved Telnet & SSH Host Sessions subcollection
+      match /terminalSessions/{sessionId} {
+        allow get: if (isOwner(userId) || isAdmin()) && isValidId(sessionId);
+        allow list: if isOwner(userId) || isAdmin();
+        allow delete: if (isOwner(userId) || isAdmin()) && isValidId(sessionId);
+        allow create: if (isOwner(userId) || isAdmin()) &&
+          isValidId(sessionId) &&
+          request.resource.data.id == sessionId &&
+          isValidTerminalSession(request.resource.data);
+        allow update: if (isOwner(userId) || isAdmin()) &&
+          isValidId(sessionId) &&
+          isValidTerminalSession(request.resource.data) &&
+          request.resource.data.id == resource.data.id &&
+          (request.resource.data.userId == resource.data.userId || isAdmin());
+      }
+
+      // Isolated Saved CLI Command Notepad subcollection
+      match /commandNotes/{noteId} {
+        allow get: if (isOwner(userId) || isAdmin()) && isValidId(noteId);
+        allow list: if isOwner(userId) || isAdmin();
+        allow delete: if (isOwner(userId) || isAdmin()) && isValidId(noteId);
+        allow create: if (isOwner(userId) || isAdmin()) &&
+          isValidId(noteId) &&
+          request.resource.data.id == noteId &&
+          isValidCommandNote(request.resource.data);
+        allow update: if (isOwner(userId) || isAdmin()) &&
+          isValidId(noteId) &&
+          isValidCommandNote(request.resource.data) &&
+          request.resource.data.id == resource.data.id &&
+          (request.resource.data.userId == resource.data.userId || isAdmin()) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'vendor', 'category', 'commands', 'description', 'pinned', 'updatedAt']);
+      }
     }
 
     // Admin Created Licenses
     match /licenses/{licenseId} {
-      allow read: if isAdmin() || (isSignedIn() && resource.data.assignedEmail == request.auth.token.email);
+      allow read: if isAdmin() || (isSignedIn() && request.auth.token.email_verified == true && resource.data.assignedEmail == request.auth.token.email);
       allow list: if isAdmin();
       allow create: if isAdmin() && isValidLicense(request.resource.data);
       allow update: if isAdmin() && isValidLicense(request.resource.data);

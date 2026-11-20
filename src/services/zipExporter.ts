@@ -10,9 +10,9 @@ export async function exportProjectZip(files: NativeFileItem[]): Promise<void> {
   }
 
   // Add an informative README.md explaining build steps
-  const readmeContent = `# PPTP Solution - Android & Flutter Project
+  const readmeContent = `# Universal WebUI for Network Engineer - Android & Flutter Project
 
-Production-grade Android Network Management App built for ISP engineers and MikroTik administrators.
+Production-grade Multi-Vendor Network Management & Android App built for ISP and Network Engineers.
 
 ## Architecture
 - **Target Platform:** Android 12, 13, 14, 15+ (User-space PPTP via \`VpnService\` TUN descriptor)

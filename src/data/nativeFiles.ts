@@ -79,7 +79,7 @@ flutter:
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
-        android:label="PPTP Solution"
+        android:label="Universal WebUI for Network Engineer"
         android:name="\${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
@@ -296,7 +296,7 @@ class PPTPVpnService : VpnService() {
         }
 
         return builder
-            .setContentTitle("PPTP Solution: $profileName")
+            .setContentTitle("Universal WebUI for Network Engineer: $profileName")
             .setContentText(statusText)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentIntent(pendingOpenIntent)
@@ -373,7 +373,7 @@ class PPTPVpnService : VpnService() {
         val builder = Builder()
 
         builder.setMtu(sessionMtu)
-        builder.setSession("PPTP Solution: $profileName")
+        builder.setSession("Universal WebUI for Network Engineer: $profileName")
         builder.addAddress(assignedIp, 32)
 
         // STRICT SPLIT TUNNELING:
@@ -474,7 +474,7 @@ class PPTPVpnService : VpnService() {
         buf.putInt(1)
         buf.putShort(1)
         buf.putShort(1)
-        buf.put("PPTP Solution Client".toByteArray().copyOf(64))
+        buf.put("Universal WebUI for Network Engineer".toByteArray().copyOf(64))
         buf.put("Android VpnService".toByteArray().copyOf(64))
         out.write(buf.array())
         out.flush()
@@ -1198,13 +1198,49 @@ class StorageService {
 }`,
   },
   {
+    id: 'device_webui_screen_dart',
+    name: 'device_webui_screen.dart',
+    path: 'lib/screens/device_webui_screen.dart',
+    category: 'Flutter UI',
+    language: 'dart',
+    description: '12-Vendor OLT, Router & Switch Graphical WebUI (Huawei, ZTE, BDCOM, VSOL, C-Data, MikroTik, Cisco, Juniper, Palo Alto, Arista, Ruijie, TP-Link) with live Telnet push and Save to Notepad.',
+    content: `// Refer to lib/screens/device_webui_screen.dart in project tree for complete file contents.`,
+  },
+  {
+    id: 'command_notepad_screen_dart',
+    name: 'command_notepad_screen.dart',
+    path: 'lib/screens/command_notepad_screen.dart',
+    category: 'Flutter UI',
+    language: 'dart',
+    description: 'Personal Command Notepad with Search, 12-Brand Filter, Pin, Quick Edit & Apply, and 1-Tap Apply Live over Telnet.',
+    content: `// Refer to lib/screens/command_notepad_screen.dart in project tree for complete file contents.`,
+  },
+  {
+    id: 'notepad_storage_service_dart',
+    name: 'notepad_storage_service.dart',
+    path: 'lib/services/notepad_storage_service.dart',
+    category: 'Flutter Services',
+    language: 'dart',
+    description: 'Persistent SharedPreferences storage for saved multi-line ISP CLI scripts and pinned command notes.',
+    content: `// Refer to lib/services/notepad_storage_service.dart in project tree for complete file contents.`,
+  },
+  {
     id: 'dashboard_screen_dart',
     name: 'dashboard_screen.dart',
     path: 'lib/screens/dashboard_screen.dart',
     category: 'Flutter UI',
     language: 'dart',
-    description: 'Flutter dashboard with dark theme, ISP profile cards, quick connect toggle, and split route badges.',
+    description: 'PPTP VPN Dashboard with ISP profile cards, quick connect toggle, and split route controls.',
     content: `// Refer to lib/screens/dashboard_screen.dart in project tree for complete file contents.`,
+  },
+  {
+    id: 'serial_console_service_dart',
+    name: 'serial_console_service.dart',
+    path: 'lib/services/serial_console_service.dart',
+    category: 'Flutter Services',
+    language: 'dart',
+    description: 'Android USB-OTG Serial Console Cable service (FTDI, PL2303, CH340, CP210x, Cisco/Huawei USB Console) at 9600/115200 bps 8-N-1.',
+    content: `// Refer to lib/services/serial_console_service.dart in project tree for complete file contents.`,
   },
   {
     id: 'terminal_screen_dart',
@@ -1212,7 +1248,7 @@ class StorageService {
     path: 'lib/screens/terminal_screen.dart',
     category: 'Flutter UI',
     language: 'dart',
-    description: 'Interactive MikroTik SSH terminal screen using dartssh2 & xterm with ANSI colors and RouterOS shortcut bar.',
+    description: 'Interactive 12-Vendor SSH, RFC 854 Telnet & USB-OTG Console Cable terminal with ? Help, Tab completion, Ctrl+C/Z, and Command Notepad 1-Tap Apply.',
     content: `// Refer to lib/screens/terminal_screen.dart in project tree for complete file contents.`,
   },
   {
@@ -1221,7 +1257,7 @@ class StorageService {
     path: 'lib/screens/diagnostics_screen.dart',
     category: 'Flutter UI',
     language: 'dart',
-    description: 'TCP port probe (Winbox 8291, SSH 22, WebFig 80/443, API 8728) and Ping latency analyzer.',
+    description: 'TCP port probe (Winbox 8291, SSH 22, Telnet 23, WebFig 80/443, API 8728) and Ping latency analyzer.',
     content: `// Refer to lib/screens/diagnostics_screen.dart in project tree for complete file contents.`,
   },
   {
@@ -1230,7 +1266,7 @@ class StorageService {
     path: 'lib/main.dart',
     category: 'Flutter Core',
     language: 'dart',
-    description: 'Flutter application entry point with dark cyber theme setup and DashboardScreen root.',
+    description: 'Universal WebUI for Network Engineer entry point with crisp white/black theme and unified 5-tab NavigationBar shell.',
     content: `// Refer to lib/main.dart in project tree for complete file contents.`,
   },
 ];

@@ -2,9 +2,69 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/pptp_profile.dart';
 
+class SavedTerminalHost {
+  final String id;
+  final String name;
+  final String vendor;
+  final String protocol; // 'telnet' or 'ssh'
+  final String host;
+  final int port;
+  final String username;
+  final String password;
+  final bool autoLogin;
+
+  SavedTerminalHost({
+    required this.id,
+    required this.name,
+    required this.vendor,
+    required this.protocol,
+    required this.host,
+    required this.port,
+    required this.username,
+    required this.password,
+    this.autoLogin = true,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'vendor': vendor,
+      'protocol': protocol,
+      'host': host,
+      'port': port,
+      'username': username,
+      'password': password,
+      'autoLogin': autoLogin,
+    };
+  }
+
+  factory SavedTerminalHost.fromMap(Map<String, dynamic> map) {
+    return SavedTerminalHost(
+      id: (map['id'] ?? '').toString(),
+      name: (map['name'] ?? 'Saved Device').toString(),
+      vendor: (map['vendor'] ?? 'MikroTik').toString(),
+      protocol: (map['protocol'] ?? 'telnet').toString(),
+      host: (map['host'] ?? '').toString(),
+      port: (map['port'] is int)
+          ? map['port'] as int
+          : int.tryParse((map['port'] ?? '23').toString()) ?? 23,
+      username: (map['username'] ?? '').toString(),
+      password: (map['password'] ?? '').toString(),
+      autoLogin: map['autoLogin'] != false,
+    );
+  }
+
+  String toJson() => jsonEncode(toMap());
+
+  factory SavedTerminalHost.fromJson(String source) =>
+      SavedTerminalHost.fromMap(jsonDecode(source) as Map<String, dynamic>);
+}
+
 class StorageService {
   static const String _keyProfiles = 'saved_pptp_profiles';
   static const String _keyActiveProfileId = 'active_pptp_profile_id';
+  static const String _keyTerminalSessions = 'saved_terminal_sessions_v1';
 
   static final StorageService _instance = StorageService._internal();
   factory StorageService() => _instance;
@@ -83,6 +143,51 @@ class StorageService {
     return prefs.setString(_keyActiveProfileId, id);
   }
 
+  /// Loads all saved Telnet / SSH sessions (IP + Port + Username + Password).
+  Future<List<SavedTerminalHost>> getTerminalSessions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String>? jsonList = prefs.getStringList(_keyTerminalSessions);
+    if (jsonList == null || jsonList.isEmpty) {
+      return [];
+    }
+    try {
+      return jsonList
+          .map((item) => SavedTerminalHost.fromJson(item))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Persists the complete list of saved Telnet / SSH sessions.
+  Future<bool> saveAllTerminalSessions(List<SavedTerminalHost> sessions) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonList = sessions.map((s) => s.toJson()).toList();
+    return prefs.setStringList(_keyTerminalSessions, jsonList);
+  }
+
+  /// Adds or updates a saved Telnet / SSH session.
+  Future<List<SavedTerminalHost>> upsertTerminalSession(
+      SavedTerminalHost session) async {
+    final sessions = await getTerminalSessions();
+    final index = sessions.indexWhere((s) => s.id == session.id);
+    if (index >= 0) {
+      sessions[index] = session;
+    } else {
+      sessions.insert(0, session);
+    }
+    await saveAllTerminalSessions(sessions);
+    return sessions;
+  }
+
+  /// Deletes a saved Telnet / SSH session by ID.
+  Future<List<SavedTerminalHost>> deleteTerminalSession(String id) async {
+    final sessions = await getTerminalSessions();
+    sessions.removeWhere((s) => s.id == id);
+    await saveAllTerminalSessions(sessions);
+    return sessions;
+  }
+
   /// Default production templates for ISP MikroTik routers.
   List<PPTPProfile> _getDefaultProfiles() {
     return [
@@ -123,3 +228,4 @@ class StorageService {
     ];
   }
 }
+

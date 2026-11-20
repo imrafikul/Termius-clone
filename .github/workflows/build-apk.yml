@@ -1,4 +1,4 @@
-name: Build Android PPTP Solution APK
+name: Build Universal WebUI for Network Engineer APK
 
 on:
   push:
@@ -53,7 +53,7 @@ jobs:
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pptp-solution-apk
+          name: universal-webui-network-engineer-apk
           path: build/app/outputs/flutter-apk/*.apk
           retention-days: 30
 
@@ -63,11 +63,11 @@ jobs:
         continue-on-error: true
         with:
           tag_name: latest
-          name: "PPTP Solution Latest Release APK"
+          name: "Universal WebUI for Network Engineer — Latest Release APK"
           body: |
-            ### PPTP Solution Android APK (Ready To Install)
+            ### Universal WebUI for Network Engineer (Android APK — Ready To Install)
             - **Universal APK:** `app-release.apk`
-            - **Features:** Android VpnService, Full Internet VPN (`0.0.0.0/0`), Split Tunnel, MikroTik Terminal, Network Diagnostics.
+            - **All Features Included:** 12-Vendor OLT/Router/Switch WebUI, Live Telnet/SSH with `? Help` & `Tab`, Personal Command Notepad with 1-Tap Apply, Android VpnService PPTP Split/Full Tunnel, and Ping/Port Diagnostics.
           files: build/app/outputs/flutter-apk/*.apk
           fail_on_unmatched_files: false
         env:

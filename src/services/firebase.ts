@@ -1,14 +1,69 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as fbSignOut, onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as fbSignOut, User } from 'firebase/auth';
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  memoryLocalCache,
+  enableNetwork,
+  setLogLevel,
+  doc,
+  getDocFromServer,
+  Firestore,
+} from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
+
+// Suppress noisy internal SDK console.error logs during transient ISP/VPN/offline blips.
+// Real Firestore permission and data errors are still strictly captured and logged by handleFirestoreError().
+setLogLevel('silent');
 
 // Initialize Firebase App
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// CRITICAL: Initialize Firestore with custom firestoreDatabaseId
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// CRITICAL: Initialize Firestore with custom firestoreDatabaseId, auto-detected long-polling
+// (with a proxy-friendly 20s timeout), and persistent IndexedDB multi-tab cache so
+// fluctuating ISP/mobile/VPN connections operate seamlessly offline and sync automatically.
+let dbInstance: Firestore;
+try {
+  dbInstance = initializeFirestore(
+    app,
+    {
+      experimentalAutoDetectLongPolling: true,
+      experimentalLongPollingOptions: { timeoutSeconds: 20 },
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    },
+    firebaseConfig.firestoreDatabaseId
+  );
+} catch {
+  try {
+    dbInstance = initializeFirestore(
+      app,
+      {
+        experimentalAutoDetectLongPolling: true,
+        experimentalLongPollingOptions: { timeoutSeconds: 20 },
+        localCache: memoryLocalCache(),
+      },
+      firebaseConfig.firestoreDatabaseId
+    );
+  } catch {
+    dbInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  }
+}
+
+export const db = dbInstance;
 export const auth = getAuth(app);
+
+// Automatically re-enable Firestore network transport when browser connectivity recovers
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    enableNetwork(db).catch(() => {
+      // Ignore transient network re-enable errors
+    });
+  });
+}
 
 // Provider
 export const googleProvider = new GoogleAuthProvider();
@@ -41,6 +96,19 @@ export interface FirestoreErrorInfo {
   };
 }
 
+export function isOfflineFirestoreError(error: unknown): boolean {
+  const code = (error as { code?: string })?.code || '';
+  const msg = error instanceof Error ? error.message : String(error);
+  return (
+    code === 'unavailable' ||
+    code === 'failed-precondition' ||
+    msg.includes('client is offline') ||
+    msg.includes('Could not reach Cloud Firestore backend') ||
+    msg.includes('code=unavailable') ||
+    msg.includes('network-request-failed')
+  );
+}
+
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
@@ -62,13 +130,16 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
-// Connection test on boot
+// Connection test on boot (gracefully skips when browser reports offline)
 export async function testConnection() {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return;
+  }
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firebase client is offline or starting up.');
+      console.warn('Firestore operating in offline cache mode until network connectivity stabilizes.');
     }
   }
 }

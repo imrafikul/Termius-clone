@@ -180,6 +180,133 @@
         }
       },
       "required": ["id", "userId", "ispName", "host", "username", "password", "targetSubnet", "routerIp"]
+    },
+    "TerminalSession": {
+      "title": "TerminalSession",
+      "description": "Saved Telnet or SSH device connection session with IP, port, vendor, username, and password",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the saved terminal session",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the session owner",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Friendly device label (e.g. Core BDCOM OLT)",
+          "maxLength": 100
+        },
+        "vendor": {
+          "type": "string",
+          "description": "Network device vendor",
+          "enum": ["MikroTik", "Cisco", "Huawei", "ZTE", "BDCOM", "VSOL", "C-Data", "Palo Alto", "Juniper", "Arista", "Ruijie", "TP-Link"]
+        },
+        "protocol": {
+          "type": "string",
+          "description": "Connection protocol",
+          "enum": ["Telnet", "SSH"]
+        },
+        "host": {
+          "type": "string",
+          "description": "Device IP address or hostname",
+          "maxLength": 255
+        },
+        "port": {
+          "type": "number",
+          "description": "TCP port number (1-65535)"
+        },
+        "username": {
+          "type": "string",
+          "description": "Device login username",
+          "maxLength": 100
+        },
+        "password": {
+          "type": "string",
+          "description": "Device login password",
+          "maxLength": 128
+        },
+        "autoLogin": {
+          "type": "boolean",
+          "description": "Auto-send username and password on Telnet login prompt"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation ISO timestamp",
+          "maxLength": 64
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last updated ISO timestamp",
+          "maxLength": 64
+        }
+      },
+      "required": ["id", "userId", "name", "vendor", "protocol", "host", "port", "username", "password"]
+    },
+    "CommandNote": {
+      "title": "CommandNote",
+      "description": "Saved multi-line CLI command script in user personal Command Notepad for 1-click apply",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the saved command note",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the note owner",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "title": {
+          "type": "string",
+          "description": "Short title for recalling the saved command",
+          "maxLength": 120
+        },
+        "vendor": {
+          "type": "string",
+          "description": "Target device vendor or All",
+          "enum": ["All", "MikroTik", "Cisco", "Huawei", "ZTE", "BDCOM", "VSOL", "C-Data", "Palo Alto", "Juniper", "Arista", "Ruijie", "TP-Link"]
+        },
+        "category": {
+          "type": "string",
+          "description": "Category tag (e.g. OLT / ONU, Router / IP, Switch / VLAN)",
+          "maxLength": 60
+        },
+        "commands": {
+          "type": "string",
+          "description": "Multi-line CLI commands/script body to apply on device",
+          "maxLength": 8000
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional reminder notes explaining what the command does",
+          "maxLength": 300
+        },
+        "pinned": {
+          "type": "boolean",
+          "description": "Pin frequently used command note to top of list"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation ISO timestamp",
+          "maxLength": 64
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last updated ISO timestamp",
+          "maxLength": 64
+        }
+      },
+      "required": ["id", "userId", "title", "vendor", "category", "commands"]
     }
   },
   "firestore": {
@@ -190,6 +317,14 @@
     "/users/{userId}/profiles/{profileId}": {
       "schema": "PPTPProfile",
       "description": "Private VPN configurations belonging to the authenticated user"
+    },
+    "/users/{userId}/terminalSessions/{sessionId}": {
+      "schema": "TerminalSession",
+      "description": "Private saved Telnet and SSH host sessions belonging to the authenticated user"
+    },
+    "/users/{userId}/commandNotes/{noteId}": {
+      "schema": "CommandNote",
+      "description": "Private saved CLI Command Notepad scripts belonging to the authenticated user"
     },
     "/licenses/{licenseId}": {
       "schema": "LicenseKey",

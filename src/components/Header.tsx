@@ -9,22 +9,22 @@ import {
   Code2,
   Layers,
   Plus,
-  LogIn,
   LogOut,
-  UserCheck,
   Lock,
   ChevronDown,
   ShieldAlert,
-  Clock,
   Sparkles,
+  Share2,
+  Server,
+  Globe,
 } from 'lucide-react';
 import { ConnectionState, VpnProfile } from '../types/vpn';
 import { useAuth } from '../context/AuthContext';
 import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
-  activeTab: 'dashboard' | 'profiles' | 'terminal' | 'diagnostics' | 'source' | 'admin';
-  setActiveTab: (tab: 'dashboard' | 'profiles' | 'terminal' | 'diagnostics' | 'source' | 'admin') => void;
+  activeTab: 'dashboard' | 'profiles' | 'terminal' | 'webui' | 'huawei-olt' | 'topology' | 'diagnostics' | 'source' | 'admin';
+  setActiveTab: (tab: 'dashboard' | 'profiles' | 'terminal' | 'webui' | 'huawei-olt' | 'topology' | 'diagnostics' | 'source' | 'admin') => void;
   connectionState: ConnectionState;
   activeProfile: VpnProfile | null;
   onToggleConnect: () => void;
@@ -42,7 +42,8 @@ export const Header: React.FC<HeaderProps> = ({
   const { user, isAdmin, license, loginWithGoogle, logout, syncStatus } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  const isConnected = connectionState === 'CONNECTED';
+  const isVpnConnected = connectionState === 'CONNECTED';
+  const isGatewayReady = connectionState === 'GATEWAY_READY';
   const isPending =
     connectionState === 'CONNECTING_TCP' ||
     connectionState === 'PPTP_HANDSHAKE' ||
@@ -51,34 +52,34 @@ export const Header: React.FC<HeaderProps> = ({
     connectionState === 'IPCP_CONFIG';
 
   return (
-    <header className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-md border-b border-slate-800">
+    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
         {/* Zone 1: Brand title */}
         <div className="flex items-center gap-3 shrink-0">
-          <div className="w-9 h-9 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-sm">
+          <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-300 flex items-center justify-center text-black shadow-xs">
             <Network className="w-5 h-5" />
           </div>
           <button
             onClick={() => setActiveTab('dashboard')}
-            className="text-left group cursor-pointer focus:outline-none"
+            className="text-left group cursor-pointer focus:outline-none min-w-0"
           >
-            <span className="text-base font-bold text-white tracking-tight whitespace-nowrap block">
-              PPTP Solution
+            <span className="text-sm sm:text-base font-bold text-black tracking-tight block leading-tight truncate max-w-[200px] sm:max-w-[260px] xl:max-w-none">
+              Universal WebUI for Network Engineer
             </span>
-            <span className="text-[11px] text-slate-400 font-mono tracking-tight block">
-              Android VpnService · Full &amp; Split VPN
+            <span className="text-[10px] sm:text-[11px] text-slate-600 font-mono tracking-tight block truncate">
+              Multi-Vendor OLT · Router · Switch · Telnet/SSH
             </span>
           </button>
         </div>
 
         {/* Zone 2: Navigation Links */}
-        <nav className="hidden lg:flex items-center gap-1">
+        <nav className="hidden lg:flex items-center gap-0.5 overflow-x-auto">
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
+            className={`px-2.5 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
               activeTab === 'dashboard'
-                ? 'bg-slate-800 text-cyan-300 border border-slate-700 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-black text-white shadow-xs'
+                : 'text-slate-700 hover:text-black hover:bg-slate-100'
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
@@ -86,11 +87,23 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveTab('webui')}
+            className={`px-2.5 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'webui'
+                ? 'bg-black text-white shadow-xs'
+                : 'text-slate-700 hover:text-black hover:bg-slate-100'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>Device WebUI</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('profiles')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
+            className={`px-2.5 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
               activeTab === 'profiles'
-                ? 'bg-slate-800 text-cyan-300 border border-slate-700 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-black text-white shadow-xs'
+                : 'text-slate-700 hover:text-black hover:bg-slate-100'
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5" />
@@ -99,62 +112,84 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={() => setActiveTab('terminal')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
+            className={`px-2.5 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
               activeTab === 'terminal'
-                ? 'bg-slate-800 text-cyan-300 border border-slate-700 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-black text-white shadow-xs'
+                : 'text-slate-700 hover:text-black hover:bg-slate-100'
             }`}
           >
             <Terminal className="w-3.5 h-3.5" />
-            <span>Terminal</span>
+            <span>Telnet / SSH</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('huawei-olt')}
+            className={`px-2.5 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'huawei-olt'
+                ? 'bg-black text-white shadow-xs'
+                : 'text-slate-700 hover:text-black hover:bg-slate-100'
+            }`}
+          >
+            <Server className="w-3.5 h-3.5" />
+            <span>Huawei OLT</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('topology')}
+            className={`px-2.5 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'topology'
+                ? 'bg-black text-white shadow-xs'
+                : 'text-slate-700 hover:text-black hover:bg-slate-100'
+            }`}
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span>Topology CLI</span>
           </button>
 
           <button
             onClick={() => setActiveTab('diagnostics')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
+            className={`px-2.5 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
               activeTab === 'diagnostics'
-                ? 'bg-slate-800 text-cyan-300 border border-slate-700 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-black text-white shadow-xs'
+                : 'text-slate-700 hover:text-black hover:bg-slate-100'
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
-            <span>Diagnostics</span>
+            <span>Ping &amp; Trace</span>
           </button>
 
           <button
             onClick={() => setActiveTab('source')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
+            className={`px-2.5 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
               activeTab === 'source'
-                ? 'bg-slate-800 text-cyan-300 border border-slate-700 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-black text-white shadow-xs'
+                : 'text-slate-700 hover:text-black hover:bg-slate-100'
             }`}
           >
             <Code2 className="w-3.5 h-3.5" />
             <span>Source Code</span>
           </button>
 
-          {/* Admin Panel Tab (Available to rafikul18285@gmail.com, merafikulus@gmail.com) */}
           {isAdmin && (
             <button
               onClick={() => setActiveTab('admin')}
-              className={`px-3 py-1.5 rounded-md text-xs font-bold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
+              className={`px-2.5 py-1.5 rounded-md text-xs font-bold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'admin'
-                  ? 'bg-red-500/20 text-red-300 border border-red-500/40 shadow-sm'
-                  : 'text-red-400 hover:text-red-300 hover:bg-red-500/10'
+                  ? 'bg-red-600 text-white shadow-xs'
+                  : 'text-red-700 hover:text-red-900 hover:bg-red-50'
               }`}
             >
               <ShieldAlert className="w-3.5 h-3.5" />
-              <span>Admin Panel</span>
+              <span>Admin</span>
             </button>
           )}
         </nav>
 
         {/* Zone 3: Actions + PWA Install + Google Auth */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* 1-Month Trial Status Indicator */}
           {user && license && (
-            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-[11px] font-mono">
-              <Sparkles className="w-3 h-3 text-emerald-400" />
+            <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-mono">
+              <Sparkles className="w-3 h-3 text-emerald-600" />
               <span>{license.planName}: {license.daysRemaining}d left</span>
             </div>
           )}
@@ -163,7 +198,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenAddProfile}
             title="Add New PPTP VPN Profile"
-            className="hidden sm:flex px-2.5 py-1.5 rounded-lg text-xs font-bold text-cyan-300 bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-800/80 transition-colors items-center gap-1.5 cursor-pointer"
+            className="hidden sm:flex px-2.5 py-1.5 rounded-lg text-xs font-bold text-black bg-slate-100 hover:bg-slate-200 border border-slate-300 transition-colors items-center gap-1.5 cursor-pointer whitespace-nowrap"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>+ Add PPTP</span>
@@ -172,118 +207,138 @@ export const Header: React.FC<HeaderProps> = ({
           {/* 1-Click PWA App Download Button */}
           <PWAInstallButton variant="header" />
 
-          {/* Google Sign-In / Account Dropdown */}
+          {/* Google Sign-In / Account Dropdown + Direct 1-Tap Logout */}
           {user ? (
-            <div className="relative">
-              <button
-                onClick={() => setShowUserMenu(!showUserMenu)}
-                className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs transition cursor-pointer"
-                title={`Logged in as ${user.email} (Data Isolated)`}
-              >
-                {user.photoURL ? (
-                  <img
-                    src={user.photoURL}
-                    alt={user.displayName || 'User'}
-                    className="w-5 h-5 rounded-full border border-cyan-400/40"
-                  />
-                ) : (
-                  <div className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 font-bold flex items-center justify-center text-[10px]">
-                    {user.email ? user.email[0].toUpperCase() : 'U'}
-                  </div>
-                )}
-                <span className="max-w-[90px] truncate hidden md:inline font-mono text-[11px]">
-                  {user.displayName || user.email?.split('@')[0]}
-                </span>
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    syncStatus === 'synced'
-                      ? 'bg-emerald-400 ring-2 ring-emerald-500/20'
-                      : syncStatus === 'syncing'
-                      ? 'bg-amber-400 animate-pulse'
-                      : 'bg-slate-400'
-                  }`}
-                  title={syncStatus === 'synced' ? 'Private Firestore Synced' : syncStatus}
-                />
-                <ChevronDown className="w-3 h-3 text-slate-400" />
-              </button>
-
-              {/* User Account Popover */}
-              {showUserMenu && (
-                <div
-                  className="absolute right-0 mt-2 w-72 rounded-xl border border-slate-700 bg-slate-900 p-3 shadow-2xl z-50 text-xs"
-                  onMouseLeave={() => setShowUserMenu(false)}
+            <div className="flex items-center gap-1.5">
+              <div className="relative">
+                <button
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 text-black text-xs transition cursor-pointer"
+                  title={`Logged in as ${user.email} (Data Isolated)`}
                 >
-                  <div className="flex items-start gap-2.5 pb-2.5 border-b border-slate-800">
-                    {user.photoURL ? (
-                      <img
-                        src={user.photoURL}
-                        alt="Avatar"
-                        className="w-8 h-8 rounded-full border border-cyan-500/30 shrink-0"
-                      />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-cyan-500/20 text-cyan-300 font-bold flex items-center justify-center text-xs shrink-0">
-                        {user.email?.[0].toUpperCase()}
+                  {user.photoURL ? (
+                    <img
+                      src={user.photoURL}
+                      alt={user.displayName || 'User'}
+                      referrerPolicy="no-referrer"
+                      className="w-5 h-5 rounded-full border border-slate-300"
+                    />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full bg-slate-900 text-white font-bold flex items-center justify-center text-[10px]">
+                      {user.email ? user.email[0].toUpperCase() : 'U'}
+                    </div>
+                  )}
+                  <span className="max-w-[90px] truncate hidden md:inline font-mono text-[11px] text-black">
+                    {user.displayName || user.email?.split('@')[0]}
+                  </span>
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      syncStatus === 'synced'
+                        ? 'bg-emerald-500'
+                        : syncStatus === 'syncing'
+                        ? 'bg-amber-500 animate-pulse'
+                        : 'bg-slate-400'
+                    }`}
+                    title={syncStatus === 'synced' ? 'Private Firestore Synced' : syncStatus}
+                  />
+                  <ChevronDown className="w-3 h-3 text-slate-600" />
+                </button>
+
+                {/* User Account Popover */}
+                {showUserMenu && (
+                  <div className="absolute right-0 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-xl z-50 text-xs text-black">
+                    <div className="flex items-start gap-2.5 pb-2.5 border-b border-slate-200">
+                      {user.photoURL ? (
+                        <img
+                          src={user.photoURL}
+                          alt="Avatar"
+                          referrerPolicy="no-referrer"
+                          className="w-8 h-8 rounded-full border border-slate-300 shrink-0"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-black text-white font-bold flex items-center justify-center text-xs shrink-0">
+                          {user.email?.[0].toUpperCase()}
+                        </div>
+                      )}
+                      <div className="overflow-hidden flex-1">
+                        <p className="font-semibold text-black truncate">
+                          {user.displayName || 'Network Engineer'}
+                        </p>
+                        <p className="text-[11px] text-slate-600 truncate font-mono">{user.email}</p>
                       </div>
-                    )}
-                    <div className="overflow-hidden">
-                      <p className="font-semibold text-slate-100 truncate">
-                        {user.displayName || 'Network Engineer'}
+                      <button
+                        onClick={() => setShowUserMenu(false)}
+                        className="text-slate-500 hover:text-black px-1 cursor-pointer"
+                        aria-label="Close account menu"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="my-2 p-2 rounded-lg bg-emerald-50 border border-emerald-200">
+                      <div className="flex items-center justify-between text-emerald-800 font-semibold text-[11px]">
+                        <span>1 Month Free Trial Active</span>
+                        <span>{license?.daysRemaining || 30} days</span>
+                      </div>
+                      <p className="text-[10px] text-slate-700 mt-0.5">
+                        কোনো ক্রেডিট কার্ড ছাড়াই ৩০ দিন সম্পূর্ণ ফ্রি ট্রায়াল চলছে।
                       </p>
-                      <p className="text-[11px] text-slate-400 truncate font-mono">{user.email}</p>
                     </div>
-                  </div>
 
-                  {/* 1 Month Free Trial Info */}
-                  <div className="my-2 p-2 rounded-lg bg-emerald-950/40 border border-emerald-500/30">
-                    <div className="flex items-center justify-between text-emerald-300 font-semibold text-[11px]">
-                      <span>1 Month Free Trial Active</span>
-                      <span>{license?.daysRemaining || 30} days</span>
+                    {isAdmin && (
+                      <button
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          setActiveTab('admin');
+                        }}
+                        className="w-full mb-2 flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold transition cursor-pointer"
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5" />
+                        <span>এডমিন প্যানেলে যান</span>
+                      </button>
+                    )}
+
+                    <div className="my-2 bg-slate-50 p-2 rounded-lg border border-slate-200 space-y-1">
+                      <div className="flex items-center gap-1.5 text-emerald-700 text-[11px] font-semibold">
+                        <Lock className="w-3 h-3" />
+                        <span>Data Isolation Active</span>
+                      </div>
+                      <p className="text-[10px] text-slate-600 leading-tight">
+                        আপনার PPTP প্রোফাইল ও সেভ করা Telnet/SSH ক্রেডেনশিয়াল শুধু আপনার Google অ্যাকাউন্টে সীমাবদ্ধ।
+                      </p>
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      কোনো ক্রেডিট কার্ড ছাড়াই ৩০ দিন সম্পূর্ণ ফ্রি ট্রায়াল চলছে।
-                    </p>
-                  </div>
 
-                  {isAdmin && (
                     <button
                       onClick={() => {
                         setShowUserMenu(false);
-                        setActiveTab('admin');
+                        logout();
                       }}
-                      className="w-full mb-2 flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 text-xs font-bold transition cursor-pointer"
+                      className="w-full mt-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition cursor-pointer"
                     >
-                      <ShieldAlert className="w-3.5 h-3.5" />
-                      <span>এডমিন প্যানেলে যান</span>
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Account Logout</span>
                     </button>
-                  )}
-
-                  <div className="my-2 bg-slate-950/70 p-2 rounded-lg border border-slate-800/80 space-y-1">
-                    <div className="flex items-center gap-1.5 text-emerald-400 text-[11px] font-semibold">
-                      <Lock className="w-3 h-3" />
-                      <span>Data Isolation Active</span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 leading-tight">
-                      আপনার PPTP তথ্য ও রাউটার ক্রেডেনশিয়াল শুধু আপনার Google অ্যাকাউন্টে সীমাবদ্ধ।
-                    </p>
                   </div>
+                )}
+              </div>
 
-                  <button
-                    onClick={() => {
-                      setShowUserMenu(false);
-                      logout();
-                    }}
-                    className="w-full mt-1 flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/20 text-xs font-semibold transition cursor-pointer"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>Sign Out</span>
-                  </button>
-                </div>
-              )}
+              {/* Always-visible 1-Tap Logout Button */}
+              <button
+                onClick={() => {
+                  setShowUserMenu(false);
+                  logout();
+                }}
+                title="Account Logout"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-300 text-xs font-bold transition cursor-pointer whitespace-nowrap"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Logout</span>
+              </button>
             </div>
           ) : (
             <button
               onClick={loginWithGoogle}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition cursor-pointer shadow-sm"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-black text-xs font-semibold transition cursor-pointer shadow-xs whitespace-nowrap"
               title="Google অ্যাকাউন্ট দিয়ে লগইন করে ১ মাসের ফ্রি ট্রায়াল চালু করুন"
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
@@ -304,20 +359,29 @@ export const Header: React.FC<HeaderProps> = ({
                   d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                 />
               </svg>
-              <span className="hidden sm:inline">Google Login (1-Mo Trial Free)</span>
+              <span className="hidden sm:inline">Google Login</span>
             </button>
           )}
 
-          {/* Connect / Disconnect Toggle Button */}
+          {/* Real L2TP/SSTP VPN Tunnel Connect / Disconnect Button */}
           <button
             onClick={onToggleConnect}
             disabled={isPending || !activeProfile}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold tracking-tight transition-all duration-200 whitespace-nowrap flex items-center gap-1.5 cursor-pointer shadow-sm ${
-              isConnected
-                ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/40'
+            title={
+              isVpnConnected
+                ? 'Real L2TP/SSTP VPN Tunnel Connected (Linux vpn0 active — Private IP Ping/Trace/Telnet live)'
+                : isGatewayReady
+                ? 'MikroTik Jump-Gateway Verified'
+                : 'Connect real L2TP / SSTP VPN Tunnel using MikroTik /ppp secret'
+            }
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold tracking-tight transition-all duration-200 whitespace-nowrap flex items-center gap-1.5 cursor-pointer shadow-xs ${
+              isVpnConnected
+                ? 'bg-emerald-50 text-emerald-800 border border-emerald-400 hover:bg-red-50 hover:text-red-700 hover:border-red-400'
+                : isGatewayReady
+                ? 'bg-blue-50 text-blue-900 border border-blue-400 hover:bg-red-50 hover:text-red-700 hover:border-red-400'
                 : isPending
-                ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
-                : 'bg-cyan-500 text-slate-950 hover:bg-cyan-400 font-bold'
+                ? 'bg-amber-50 text-amber-800 border border-amber-400'
+                : 'bg-black text-white hover:bg-slate-800'
             }`}
           >
             {isPending ? (
@@ -325,20 +389,140 @@ export const Header: React.FC<HeaderProps> = ({
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                 <span className="hidden sm:inline">Connecting...</span>
               </>
-            ) : isConnected ? (
+            ) : isVpnConnected ? (
               <>
-                <Power className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Disconnect</span>
+                <Power className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Disconnect VPN</span>
+              </>
+            ) : isGatewayReady ? (
+              <>
+                <Power className="w-3.5 h-3.5 text-blue-700" />
+                <span>Jump-GW Active</span>
               </>
             ) : (
               <>
                 <Power className="w-3.5 h-3.5" />
-                <span>Connect</span>
+                <span>Connect VPN</span>
               </>
             )}
           </button>
         </div>
       </div>
+
+      {/* Mobile & Tablet Navigation Bar */}
+      <nav className="lg:hidden border-t border-slate-200 bg-slate-50 px-3 py-2 overflow-x-auto">
+        <div className="flex items-center gap-1.5 min-w-max">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 border ${
+              activeTab === 'dashboard'
+                ? 'bg-black text-white border-black'
+                : 'bg-white text-black border-slate-300 hover:bg-slate-100'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>Dashboard</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('webui')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 border ${
+              activeTab === 'webui'
+                ? 'bg-black text-white border-black'
+                : 'bg-white text-black border-slate-300 hover:bg-slate-100'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>Device WebUI</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('huawei-olt')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 border ${
+              activeTab === 'huawei-olt'
+                ? 'bg-black text-white border-black'
+                : 'bg-white text-black border-slate-300 hover:bg-slate-100'
+            }`}
+          >
+            <Server className="w-3.5 h-3.5" />
+            <span>Huawei OLT GUI</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('topology')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 border ${
+              activeTab === 'topology'
+                ? 'bg-black text-white border-black'
+                : 'bg-white text-black border-slate-300 hover:bg-slate-100'
+            }`}
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span>Topology CLI</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('diagnostics')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 border ${
+              activeTab === 'diagnostics'
+                ? 'bg-black text-white border-black'
+                : 'bg-white text-black border-slate-300 hover:bg-slate-100'
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5" />
+            <span>Ping · Speed · Trace</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('terminal')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 border ${
+              activeTab === 'terminal'
+                ? 'bg-black text-white border-black'
+                : 'bg-white text-black border-slate-300 hover:bg-slate-100'
+            }`}
+          >
+            <Terminal className="w-3.5 h-3.5" />
+            <span>Telnet / SSH</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('profiles')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 border ${
+              activeTab === 'profiles'
+                ? 'bg-black text-white border-black'
+                : 'bg-white text-black border-slate-300 hover:bg-slate-100'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>Profiles</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('source')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 border ${
+              activeTab === 'source'
+                ? 'bg-black text-white border-black'
+                : 'bg-white text-black border-slate-300 hover:bg-slate-100'
+            }`}
+          >
+            <Code2 className="w-3.5 h-3.5" />
+            <span>Source / APK</span>
+          </button>
+
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab('admin')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 border ${
+                activeTab === 'admin'
+                  ? 'bg-red-600 text-white border-red-600'
+                  : 'bg-white text-red-700 border-red-300 hover:bg-red-50'
+              }`}
+            >
+              <ShieldAlert className="w-3.5 h-3.5" />
+              <span>Admin</span>
+            </button>
+          )}
+        </div>
+      </nav>
     </header>
   );
 };

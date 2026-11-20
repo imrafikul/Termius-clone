@@ -13,8 +13,11 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- USB-OTG Serial Console Cable Support (FTDI, PL2303, CH340, CP210x) -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
     <application
-        android:label="PPTP Solution"
+        android:label="Universal WebUI for Network Engineer"
         android:name="${applicationName}"
         android:icon="@android:drawable/sym_def_app_icon"
         android:usesCleartextTraffic="true"

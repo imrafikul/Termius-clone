@@ -10,9 +10,32 @@ import {
   onSnapshot,
   Unsubscribe,
 } from 'firebase/firestore';
-import { auth, db, signInWithGoogle, signOutUser, handleFirestoreError, OperationType } from '../services/firebase';
-import { VpnProfile, UserLicense, AdminUserRecord } from '../types/vpn';
-import { DEFAULT_PROFILES, getStoredProfiles, saveStoredProfiles } from '../services/storage';
+import {
+  auth,
+  db,
+  signInWithGoogle,
+  signOutUser,
+  handleFirestoreError,
+  isOfflineFirestoreError,
+  OperationType,
+} from '../services/firebase';
+import {
+  VpnProfile,
+  UserLicense,
+  AdminUserRecord,
+  SavedTerminalSession,
+  SavedCommandNote,
+  TerminalVendor,
+} from '../types/vpn';
+import {
+  DEFAULT_PROFILES,
+  getStoredProfiles,
+  saveStoredProfiles,
+  getStoredTerminalSessions,
+  saveStoredTerminalSessions,
+  getStoredCommandNotes,
+  saveStoredCommandNotes,
+} from '../services/storage';
 
 export const ADMIN_EMAILS = [
   'rafikul18285@gmail.com',
@@ -46,6 +69,16 @@ interface AuthContextType {
   addProfile: (profile: Omit<VpnProfile, 'id'>) => Promise<VpnProfile>;
   updateProfile: (profile: VpnProfile) => Promise<void>;
   deleteProfile: (id: string) => Promise<void>;
+  terminalSessions: SavedTerminalSession[];
+  saveTerminalSession: (
+    session: Omit<SavedTerminalSession, 'id'> & { id?: string }
+  ) => Promise<SavedTerminalSession>;
+  deleteTerminalSession: (id: string) => Promise<void>;
+  commandNotes: SavedCommandNote[];
+  saveCommandNote: (
+    note: Omit<SavedCommandNote, 'id'> & { id?: string }
+  ) => Promise<SavedCommandNote>;
+  deleteCommandNote: (id: string) => Promise<void>;
   syncStatus: 'synced' | 'syncing' | 'local' | 'error';
   errorMessage: string | null;
   // Admin Methods
@@ -68,6 +101,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [loading, setLoading] = useState(true);
   const [license, setLicense] = useState<UserLicense | null>(null);
   const [profiles, setProfiles] = useState<VpnProfile[]>([]);
+  const [terminalSessions, setTerminalSessions] = useState<SavedTerminalSession[]>(() =>
+    getStoredTerminalSessions()
+  );
+  const [commandNotes, setCommandNotes] = useState<SavedCommandNote[]>(() =>
+    getStoredCommandNotes()
+  );
   const [activeProfileId, setActiveProfileIdState] = useState<string>('');
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'local' | 'error'>('local');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -84,6 +123,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     let unsubUserDoc: Unsubscribe | null = null;
     let unsubProfiles: Unsubscribe | null = null;
+    let unsubTerminalSessions: Unsubscribe | null = null;
+    let unsubCommandNotes: Unsubscribe | null = null;
     let unsubAdminUsers: Unsubscribe | null = null;
     let unsubAdminLicenses: Unsubscribe | null = null;
 
@@ -93,16 +134,34 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Clean up previous listeners
       if (unsubUserDoc) unsubUserDoc();
       if (unsubProfiles) unsubProfiles();
+      if (unsubTerminalSessions) unsubTerminalSessions();
+      if (unsubCommandNotes) unsubCommandNotes();
       if (unsubAdminUsers) unsubAdminUsers();
       if (unsubAdminLicenses) unsubAdminLicenses();
 
       if (currentUser) {
+        // Hydrate cached profiles/sessions/notes immediately so UI works even while reconnecting
+        const cachedProfiles = getStoredProfiles();
+        if (cachedProfiles.length > 0) {
+          setProfiles(cachedProfiles);
+          setActiveProfileIdState((prev) => (prev ? prev : cachedProfiles[0].id));
+        }
+        setTerminalSessions(getStoredTerminalSessions());
+        setCommandNotes(getStoredCommandNotes());
         setLoading(true);
         setSyncStatus('syncing');
 
         try {
-          // 1. Initial User Document Bootstrap (1-Month Free Trial auto-activation)
-          await bootstrapUserDoc(currentUser);
+          // 1. Initial User Document Bootstrap (non-blocking if currently offline)
+          try {
+            await bootstrapUserDoc(currentUser);
+          } catch (bootErr) {
+            if (isOfflineFirestoreError(bootErr)) {
+              setSyncStatus('local');
+            } else {
+              throw bootErr;
+            }
+          }
 
           // 2. Real-Time Listener on User Profile & License
           const userDocRef = doc(db, 'users', currentUser.uid);
@@ -141,6 +200,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               }
             },
             (error) => {
+              if (isOfflineFirestoreError(error)) {
+                setSyncStatus('local');
+                return;
+              }
               handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
             }
           );
@@ -179,48 +242,158 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 });
               });
 
-              // Seed initial templates if completely empty
-              if (list.length === 0 && snap.empty) {
-                for (const def of DEFAULT_PROFILES) {
-                  const pRef = doc(db, profilesPath, def.id);
-                  const firstSubnet = def.remoteSubnets[0] || '192.168.88.0/24';
-                  await setDoc(pRef, {
-                    id: def.id,
-                    userId: currentUser.uid,
-                    ispName: def.name,
-                    host: def.server,
-                    port: def.port,
-                    username: def.username,
-                    password: def.password,
-                    routingMode: def.routingMode || 'split',
-                    targetSubnet: firstSubnet,
-                    routerIp: '192.168.88.1',
-                    sshPort: 22,
-                    winboxPort: 8291,
-                    remoteSubnets: def.remoteSubnets,
-                    mtu: def.mtu,
-                    mru: def.mru,
-                    encryption: def.encryption,
-                    keepaliveInterval: def.keepaliveInterval,
-                    autoReconnect: def.autoReconnect,
-                    dnsServers: def.dnsServers,
-                    tags: def.tags,
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                  });
+              // Seed initial templates only when server confirms collection is empty (never on empty offline cache)
+              if (list.length === 0 && snap.empty && !snap.metadata.fromCache) {
+                try {
+                  for (const def of DEFAULT_PROFILES) {
+                    const pRef = doc(db, profilesPath, def.id);
+                    const firstSubnet = def.remoteSubnets[0] || '192.168.88.0/24';
+                    await setDoc(pRef, {
+                      id: def.id,
+                      userId: currentUser.uid,
+                      ispName: def.name,
+                      host: def.server,
+                      port: def.port,
+                      username: def.username,
+                      password: def.password,
+                      routingMode: def.routingMode || 'split',
+                      targetSubnet: firstSubnet,
+                      routerIp: '192.168.88.1',
+                      sshPort: 22,
+                      winboxPort: 8291,
+                      remoteSubnets: def.remoteSubnets,
+                      mtu: def.mtu,
+                      mru: def.mru,
+                      encryption: def.encryption,
+                      keepaliveInterval: def.keepaliveInterval,
+                      autoReconnect: def.autoReconnect,
+                      dnsServers: def.dnsServers,
+                      tags: def.tags,
+                      createdAt: new Date().toISOString(),
+                      updatedAt: new Date().toISOString(),
+                    });
+                  }
+                } catch (seedErr) {
+                  if (isOfflineFirestoreError(seedErr)) {
+                    setSyncStatus('local');
+                    setLoading(false);
+                  } else {
+                    handleFirestoreError(seedErr, OperationType.CREATE, profilesPath);
+                  }
                 }
               } else {
-                setProfiles(list);
-                saveStoredProfiles(list);
                 if (list.length > 0) {
+                  setProfiles(list);
+                  saveStoredProfiles(list);
                   setActiveProfileIdState((prev) => (prev ? prev : list[0].id));
                 }
-                setSyncStatus('synced');
+                setSyncStatus(snap.metadata.fromCache ? 'local' : 'synced');
                 setLoading(false);
               }
             },
             (error) => {
+              if (isOfflineFirestoreError(error)) {
+                setSyncStatus('local');
+                setLoading(false);
+                return;
+              }
               handleFirestoreError(error, OperationType.GET, profilesPath);
+            }
+          );
+
+          // 3.5 Real-Time Listener on Saved Telnet / SSH Terminal Sessions
+          const terminalPath = `users/${currentUser.uid}/terminalSessions`;
+          const terminalColRef = collection(db, terminalPath);
+          const allowedVendors: TerminalVendor[] = [
+            'MikroTik',
+            'Cisco',
+            'Huawei',
+            'ZTE',
+            'BDCOM',
+            'VSOL',
+            'C-Data',
+            'Palo Alto',
+            'Juniper',
+            'Arista',
+            'Ruijie',
+            'TP-Link',
+          ];
+
+          unsubTerminalSessions = onSnapshot(
+            terminalColRef,
+            (tSnap) => {
+              const tList: SavedTerminalSession[] = [];
+              tSnap.forEach((d) => {
+                const data = d.data();
+                const vendorVal: TerminalVendor = allowedVendors.includes(data.vendor)
+                  ? data.vendor
+                  : 'MikroTik';
+                tList.push({
+                  id: d.id,
+                  name: typeof data.name === 'string' ? data.name : 'Saved Device',
+                  vendor: vendorVal,
+                  protocol: data.protocol === 'SSH' ? 'SSH' : 'Telnet',
+                  host: typeof data.host === 'string' ? data.host : '',
+                  port: typeof data.port === 'number' ? data.port : 23,
+                  username: typeof data.username === 'string' ? data.username : '',
+                  password: typeof data.password === 'string' ? data.password : '',
+                  autoLogin: data.autoLogin !== false,
+                  createdAt: data.createdAt,
+                  updatedAt: data.updatedAt,
+                });
+              });
+              tList.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+              setTerminalSessions(tList);
+              saveStoredTerminalSessions(tList);
+            },
+            (error) => {
+              if (isOfflineFirestoreError(error)) {
+                setSyncStatus('local');
+                return;
+              }
+              handleFirestoreError(error, OperationType.GET, terminalPath);
+            }
+          );
+
+          // 3.6 Real-Time Listener on Saved CLI Command Notepad
+          const notesPath = `users/${currentUser.uid}/commandNotes`;
+          const notesColRef = collection(db, notesPath);
+          const allowedNoteVendors: (TerminalVendor | 'All')[] = ['All', ...allowedVendors];
+
+          unsubCommandNotes = onSnapshot(
+            notesColRef,
+            (nSnap) => {
+              const nList: SavedCommandNote[] = [];
+              nSnap.forEach((d) => {
+                const data = d.data();
+                const vVal: TerminalVendor | 'All' = allowedNoteVendors.includes(data.vendor)
+                  ? data.vendor
+                  : 'All';
+                nList.push({
+                  id: d.id,
+                  title: typeof data.title === 'string' ? data.title : 'Saved Command',
+                  vendor: vVal,
+                  category: typeof data.category === 'string' ? data.category : 'General',
+                  commands: typeof data.commands === 'string' ? data.commands : '',
+                  description: typeof data.description === 'string' ? data.description : '',
+                  pinned: Boolean(data.pinned),
+                  createdAt: data.createdAt,
+                  updatedAt: data.updatedAt,
+                });
+              });
+              if (nList.length > 0) {
+                nList.sort((a, b) => {
+                  if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
+                  return (b.updatedAt || '').localeCompare(a.updatedAt || '');
+                });
+                setCommandNotes(nList);
+                saveStoredCommandNotes(nList);
+              }
+            },
+            (error) => {
+              if (!isOfflineFirestoreError(error)) {
+                handleFirestoreError(error, OperationType.GET, notesPath);
+              }
             }
           );
 
@@ -263,6 +436,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 setAdminUsers(uList);
               },
               (err) => {
+                if (isOfflineFirestoreError(err)) {
+                  setSyncStatus('local');
+                  return;
+                }
                 handleFirestoreError(err, OperationType.GET, 'users');
               }
             );
@@ -289,13 +466,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 setAdminLicenses(lList);
               },
               (err) => {
+                if (isOfflineFirestoreError(err)) {
+                  setSyncStatus('local');
+                  return;
+                }
                 handleFirestoreError(err, OperationType.GET, 'licenses');
               }
             );
           }
         } catch (err: any) {
-          console.error('Error starting live sync:', err);
-          setSyncStatus('error');
+          if (isOfflineFirestoreError(err)) {
+            console.warn('Firestore temporarily unreachable; operating with local cache until reconnected.');
+            setSyncStatus('local');
+          } else {
+            console.error('Error starting live sync:', err);
+            setSyncStatus('error');
+          }
           setLoading(false);
         }
       } else {
@@ -305,6 +491,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (local.length > 0) {
           setActiveProfileIdState(local[0].id);
         }
+        setTerminalSessions(getStoredTerminalSessions());
+        setCommandNotes(getStoredCommandNotes());
         setLicense(null);
         setSyncStatus('local');
         setLoading(false);
@@ -315,6 +503,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       unsubscribeAuth();
       if (unsubUserDoc) unsubUserDoc();
       if (unsubProfiles) unsubProfiles();
+      if (unsubTerminalSessions) unsubTerminalSessions();
+      if (unsubCommandNotes) unsubCommandNotes();
       if (unsubAdminUsers) unsubAdminUsers();
       if (unsubAdminLicenses) unsubAdminLicenses();
     };
@@ -378,6 +568,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const local = getStoredProfiles();
       setProfiles(local);
       if (local.length > 0) setActiveProfileIdState(local[0].id);
+      setTerminalSessions(getStoredTerminalSessions());
       setLicense(null);
       setSyncStatus('local');
     } catch (err: unknown) {
@@ -427,7 +618,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         });
         setSyncStatus('synced');
       } catch (err) {
-        handleFirestoreError(err, OperationType.CREATE, userProfilesPath);
+        if (isOfflineFirestoreError(err)) {
+          setSyncStatus('local');
+        } else {
+          handleFirestoreError(err, OperationType.CREATE, userProfilesPath);
+        }
       }
     }
 
@@ -479,7 +674,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         );
         setSyncStatus('synced');
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, userProfilesPath);
+        if (isOfflineFirestoreError(err)) {
+          setSyncStatus('local');
+        } else {
+          handleFirestoreError(err, OperationType.UPDATE, userProfilesPath);
+        }
       }
     }
 
@@ -497,7 +696,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         await deleteDoc(docRef);
         setSyncStatus('synced');
       } catch (err) {
-        handleFirestoreError(err, OperationType.DELETE, userProfilesPath);
+        if (isOfflineFirestoreError(err)) {
+          setSyncStatus('local');
+        } else {
+          handleFirestoreError(err, OperationType.DELETE, userProfilesPath);
+        }
       }
     }
 
@@ -507,6 +710,175 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (activeProfileId === id && next.length > 0) {
       setActiveProfileIdState(next[0].id);
     }
+  };
+
+  const saveTerminalSession = async (
+    sessionInput: Omit<SavedTerminalSession, 'id'> & { id?: string }
+  ): Promise<SavedTerminalSession> => {
+    const rawId = sessionInput.id?.replace(/[^a-zA-Z0-9_-]/g, '');
+    const cleanId =
+      rawId && rawId.length > 0
+        ? rawId.slice(0, 128)
+        : 'term_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 6);
+
+    const nowIso = new Date().toISOString();
+    const existing = terminalSessions.find((s) => s.id === cleanId);
+    const clampedPort = Math.max(1, Math.min(65535, Math.floor(Number(sessionInput.port) || 23)));
+
+    const saved: SavedTerminalSession = {
+      id: cleanId,
+      name: (sessionInput.name.trim() || `${sessionInput.vendor} ${sessionInput.host}`).slice(0, 100),
+      vendor: sessionInput.vendor,
+      protocol: sessionInput.protocol === 'SSH' ? 'SSH' : 'Telnet',
+      host: sessionInput.host.trim().slice(0, 255),
+      port: clampedPort,
+      username: (sessionInput.username || '').trim().slice(0, 100),
+      password: (sessionInput.password || '').slice(0, 128),
+      autoLogin: sessionInput.autoLogin !== false,
+      createdAt: existing?.createdAt || sessionInput.createdAt || nowIso,
+      updatedAt: nowIso,
+    };
+
+    if (user) {
+      const terminalPath = `users/${user.uid}/terminalSessions`;
+      try {
+        setSyncStatus('syncing');
+        const docRef = doc(db, terminalPath, cleanId);
+        await setDoc(docRef, {
+          id: saved.id,
+          userId: user.uid,
+          name: saved.name,
+          vendor: saved.vendor,
+          protocol: saved.protocol,
+          host: saved.host,
+          port: saved.port,
+          username: saved.username,
+          password: saved.password,
+          autoLogin: saved.autoLogin,
+          createdAt: saved.createdAt,
+          updatedAt: saved.updatedAt,
+        });
+        setSyncStatus('synced');
+      } catch (err) {
+        if (isOfflineFirestoreError(err)) {
+          setSyncStatus('local');
+        } else {
+          handleFirestoreError(err, existing ? OperationType.UPDATE : OperationType.CREATE, terminalPath);
+        }
+      }
+    }
+
+    const next = existing
+      ? terminalSessions.map((s) => (s.id === cleanId ? saved : s))
+      : [saved, ...terminalSessions];
+    setTerminalSessions(next);
+    saveStoredTerminalSessions(next);
+    return saved;
+  };
+
+  const deleteTerminalSession = async (id: string): Promise<void> => {
+    if (user) {
+      const terminalPath = `users/${user.uid}/terminalSessions`;
+      try {
+        setSyncStatus('syncing');
+        await deleteDoc(doc(db, terminalPath, id));
+        setSyncStatus('synced');
+      } catch (err) {
+        if (isOfflineFirestoreError(err)) {
+          setSyncStatus('local');
+        } else {
+          handleFirestoreError(err, OperationType.DELETE, terminalPath);
+        }
+      }
+    }
+
+    const next = terminalSessions.filter((s) => s.id !== id);
+    setTerminalSessions(next);
+    saveStoredTerminalSessions(next);
+  };
+
+  // COMMAND NOTEPAD CRUD (Local + Cloud Synced)
+  const saveCommandNote = async (
+    noteInput: Omit<SavedCommandNote, 'id'> & { id?: string }
+  ): Promise<SavedCommandNote> => {
+    const nowIso = new Date().toISOString();
+    const rawId = noteInput.id && /^[a-zA-Z0-9_-]+$/.test(noteInput.id)
+      ? noteInput.id
+      : `note_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const cleanId = rawId.slice(0, 128);
+    const existing = commandNotes.find((n) => n.id === cleanId);
+
+    const saved: SavedCommandNote = {
+      id: cleanId,
+      title: (noteInput.title || 'Saved Command').trim().slice(0, 120) || 'Saved Command',
+      vendor: noteInput.vendor || 'All',
+      category: (noteInput.category || 'General').trim().slice(0, 60) || 'General',
+      commands: (noteInput.commands || '').trim().slice(0, 8000),
+      description: (noteInput.description || '').trim().slice(0, 300),
+      pinned: Boolean(noteInput.pinned),
+      createdAt: existing?.createdAt || noteInput.createdAt || nowIso,
+      updatedAt: nowIso,
+    };
+
+    if (user && saved.commands.length > 0) {
+      const notesPath = `users/${user.uid}/commandNotes`;
+      try {
+        setSyncStatus('syncing');
+        const docRef = doc(db, notesPath, cleanId);
+        await setDoc(docRef, {
+          id: saved.id,
+          userId: user.uid,
+          title: saved.title,
+          vendor: saved.vendor,
+          category: saved.category,
+          commands: saved.commands,
+          description: saved.description,
+          pinned: saved.pinned,
+          createdAt: saved.createdAt,
+          updatedAt: saved.updatedAt,
+        });
+        setSyncStatus('synced');
+      } catch (err) {
+        if (isOfflineFirestoreError(err)) {
+          setSyncStatus('local');
+        } else {
+          handleFirestoreError(err, existing ? OperationType.UPDATE : OperationType.CREATE, notesPath);
+        }
+      }
+    }
+
+    const next = (
+      existing
+        ? commandNotes.map((n) => (n.id === cleanId ? saved : n))
+        : [saved, ...commandNotes]
+    ).sort((a, b) => {
+      if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
+      return (b.updatedAt || '').localeCompare(a.updatedAt || '');
+    });
+    setCommandNotes(next);
+    saveStoredCommandNotes(next);
+    return saved;
+  };
+
+  const deleteCommandNote = async (id: string): Promise<void> => {
+    if (user) {
+      const notesPath = `users/${user.uid}/commandNotes`;
+      try {
+        setSyncStatus('syncing');
+        await deleteDoc(doc(db, notesPath, id));
+        setSyncStatus('synced');
+      } catch (err) {
+        if (isOfflineFirestoreError(err)) {
+          setSyncStatus('local');
+        } else {
+          handleFirestoreError(err, OperationType.DELETE, notesPath);
+        }
+      }
+    }
+
+    const next = commandNotes.filter((n) => n.id !== id);
+    setCommandNotes(next);
+    saveStoredCommandNotes(next);
   };
 
   const setActiveProfileId = (id: string) => {
@@ -632,6 +1004,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         addProfile,
         updateProfile,
         deleteProfile,
+        terminalSessions,
+        saveTerminalSession,
+        deleteTerminalSession,
+        commandNotes,
+        saveCommandNote,
+        deleteCommandNote,
         syncStatus,
         errorMessage,
         adminUsers,

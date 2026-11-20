@@ -1,22 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Shield,
   ArrowRight,
   Server,
   Activity,
   Layers,
-  CheckCircle2,
-  AlertTriangle,
   Play,
   Square,
   Clock,
-  ArrowUpRight,
-  ArrowDownLeft,
   Sliders,
   Cpu,
-  Wifi,
-  Radio,
-  FileCode,
   Plus,
   Download,
   Terminal,
@@ -26,11 +18,20 @@ import {
   Sparkles,
   HelpCircle,
   Key,
+  Zap,
+  Gauge,
+  Route,
+  LogOut,
+  Share2,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 import { ConnectionState, ConnectionStats, NetworkLogEntry, VpnProfile } from '../types/vpn';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ApkGuideModal } from './ApkGuideModal';
 import { useAuth } from '../context/AuthContext';
+import { fetchRealClientIp } from '../services/api';
 
 interface DashboardViewProps {
   profiles: VpnProfile[];
@@ -40,7 +41,8 @@ interface DashboardViewProps {
   connectionStats: ConnectionStats;
   logs: NetworkLogEntry[];
   onToggleConnect: () => void;
-  onNavigateToTab: (tab: 'profiles' | 'terminal' | 'diagnostics' | 'source' | 'admin') => void;
+  onNavigateToTab: (tab: 'profiles' | 'terminal' | 'webui' | 'huawei-olt' | 'topology' | 'diagnostics' | 'source' | 'admin') => void;
+  onOpenDiagnosticTool?: (tool: 'ping' | 'speed-ping' | 'traceroute' | 'ports-telnet') => void;
   onOpenAddProfile: () => void;
 }
 
@@ -53,11 +55,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   logs,
   onToggleConnect,
   onNavigateToTab,
+  onOpenDiagnosticTool,
   onOpenAddProfile,
 }) => {
-  const { user, loginWithGoogle, license, updateProfile } = useAuth();
+  const { user, loginWithGoogle, logout, license, updateProfile } = useAuth();
   const [testIpInput, setTestIpInput] = useState('8.8.8.8');
   const [showApkGuide, setShowApkGuide] = useState(false);
+  const [realVisitorIp, setRealVisitorIp] = useState<string>('Checking...');
   const [testResult, setTestResult] = useState<{
     routeMatched: string;
     targetInterface: 'tun0 (PPTP VPN)' | 'wlan0/LTE (Normal Internet)';
@@ -65,7 +69,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     reason: string;
   } | null>(null);
 
-  const isConnected = connectionState === 'CONNECTED';
+  useEffect(() => {
+    let active = true;
+    fetchRealClientIp()
+      .then((res) => {
+        if (active) setRealVisitorIp(res.ip || 'Unavailable');
+      })
+      .catch(() => {
+        if (active) setRealVisitorIp('Unavailable');
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const isVpnConnected = connectionState === 'CONNECTED';
+  const isGatewayReady = connectionState === 'GATEWAY_READY';
+  const isError = connectionState === 'ERROR';
   const isPending =
     connectionState === 'CONNECTING_TCP' ||
     connectionState === 'PPTP_HANDSHAKE' ||
@@ -73,9 +93,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     connectionState === 'AUTHENTICATING' ||
     connectionState === 'IPCP_CONFIG';
 
+  const activeProtocol = activeProfile?.protocol || 'l2tp';
+
   const isFullTunnel =
     activeProfile?.routingMode === 'full' ||
     Boolean(activeProfile?.remoteSubnets.includes('0.0.0.0/0'));
+
+  const handleSelectProtocol = async (proto: 'l2tp' | 'sstp' | 'pptp') => {
+    if (!activeProfile || isVpnConnected || isPending) return;
+    const defaultPort = proto === 'sstp' ? 443 : proto === 'l2tp' ? 1701 : 1723;
+    await updateProfile({
+      ...activeProfile,
+      protocol: proto,
+      port: defaultPort,
+    });
+  };
 
   const toggleActiveProfileRoutingMode = async () => {
     if (!activeProfile) return;
@@ -101,7 +133,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
-  // Evaluate IP against routes
   const handleTestRoute = (e: React.FormEvent) => {
     e.preventDefault();
     const ip = testIpInput.trim();
@@ -122,12 +153,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         routeMatched: '0.0.0.0/0 (Default Gateway via Tunnel)',
         targetInterface: 'tun0 (PPTP VPN)',
         isSplit: true,
-        reason: `Full Internet VPN মোড সক্রিয়! গন্তব্য ${ip} সহ সমস্ত ইন্টারনেট ট্রাফিক টানেলের মাধ্যমে যাবে এবং আপনার ফোন আইপি পরিবর্তন হয়ে গেছে।`,
+        reason: `APK/OS প্রোফাইল প্রিভিউ: Full VPN মোডে Android APK দিয়ে কানেক্ট করলে গন্তব্য ${ip} সহ সব ট্রাফিক tun0 দিয়ে যাবে (ওয়েব ব্রাউজারে নয়)।`,
       });
       return;
     }
 
-    // Check split subnets
     const matched = activeProfile.remoteSubnets.find((subnet) => {
       const cleanSubnet = subnet.split('/')[0].split('.').slice(0, 3).join('.');
       return ip.startsWith(cleanSubnet) || ip === subnet.split('/')[0];
@@ -155,15 +185,131 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* 0. Ready-To-Use 1-Click Install Banner */}
       <PWAInstallButton variant="banner" />
 
-      {/* Important Notice: Web PWA vs Native APK & GitHub APK Download */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-950/40 via-slate-900 to-cyan-950/40 border border-emerald-500/40 text-xs text-slate-300 shadow-sm">
+      {/* 0.25 Universal All-Device WebUI Hero Launcher */}
+      <button
+        onClick={() => onNavigateToTab('webui')}
+        className="w-full text-left p-4 sm:p-5 rounded-xl bg-white hover:bg-slate-50 border-2 border-black transition-all cursor-pointer group flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs"
+      >
+        <div className="flex items-start sm:items-center gap-3.5">
+          <div className="p-2.5 rounded-xl bg-black text-white shrink-0">
+            <Globe className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-base font-extrabold text-black tracking-tight">
+                Multi-Vendor OLT, Router &amp; Switch WebUI
+              </span>
+              <span className="text-xs font-mono text-slate-600">
+                · 12 Brands · OLTs · Core Routers · Managed Switches
+              </span>
+            </div>
+            <p className="text-xs text-slate-700 mt-1">
+              Huawei, ZTE, BDCOM, VSOL, C-Data OLT · MikroTik, Cisco, Juniper, Palo Alto · Arista, Ruijie, TP-Link Switch — Access/Trunk, LACP, STP, BGP/OSPF, ONU Optical/Reboot ও ফুল কমান্ড লাইব্রেরি এক জায়গায়।
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-black text-white text-xs font-bold shrink-0 self-start sm:self-center group-hover:bg-slate-800 transition">
+          <span>Open Device WebUI</span>
+          <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+        </div>
+      </button>
+
+      {/* 0.5 Quick Network Tools Launcher (Ping, Speed Ping, Traceroute, Telnet/SSH, Huawei OLT GUI, Packet Tracer) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <button
+          onClick={() => (onOpenDiagnosticTool ? onOpenDiagnosticTool('ping') : onNavigateToTab('diagnostics'))}
+          className="text-left p-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 hover:border-black transition-all cursor-pointer group"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="p-2 rounded-lg bg-purple-50 text-purple-700 border border-purple-200">
+              <Zap className="w-4 h-4" />
+            </span>
+            <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-black group-hover:translate-x-0.5 transition-transform" />
+          </div>
+          <div className="text-sm font-bold text-black">Ping Tool</div>
+          <div className="text-[11px] text-slate-600 mt-0.5">ICMP / TCP RTT, TTL &amp; Loss</div>
+        </button>
+
+        <button
+          onClick={() => (onOpenDiagnosticTool ? onOpenDiagnosticTool('speed-ping') : onNavigateToTab('diagnostics'))}
+          className="text-left p-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 hover:border-black transition-all cursor-pointer group"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="p-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <Gauge className="w-4 h-4" />
+            </span>
+            <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-black group-hover:translate-x-0.5 transition-transform" />
+          </div>
+          <div className="text-sm font-bold text-black">Speed Ping</div>
+          <div className="text-[11px] text-slate-600 mt-0.5">50ms Burst, Live Graph &amp; Jitter</div>
+        </button>
+
+        <button
+          onClick={() => (onOpenDiagnosticTool ? onOpenDiagnosticTool('traceroute') : onNavigateToTab('diagnostics'))}
+          className="text-left p-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 hover:border-black transition-all cursor-pointer group"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="p-2 rounded-lg bg-blue-50 text-blue-700 border border-blue-200">
+              <Route className="w-4 h-4" />
+            </span>
+            <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-black group-hover:translate-x-0.5 transition-transform" />
+          </div>
+          <div className="text-sm font-bold text-black">Traceroute</div>
+          <div className="text-[11px] text-slate-600 mt-0.5">Hop-by-Hop L3 Path &amp; MTR</div>
+        </button>
+
+        <button
+          onClick={() => onNavigateToTab('terminal')}
+          className="text-left p-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 hover:border-black transition-all cursor-pointer group"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="p-2 rounded-lg bg-amber-50 text-amber-700 border border-amber-200">
+              <Terminal className="w-4 h-4" />
+            </span>
+            <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-black group-hover:translate-x-0.5 transition-transform" />
+          </div>
+          <div className="text-sm font-bold text-black">Telnet / SSH</div>
+          <div className="text-[11px] text-slate-600 mt-0.5">Cisco, Huawei, BDCOM, VSOL</div>
+        </button>
+
+        <button
+          onClick={() => onNavigateToTab('huawei-olt')}
+          className="text-left p-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 hover:border-black transition-all cursor-pointer group"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="p-2 rounded-lg bg-red-50 text-red-700 border border-red-200">
+              <Server className="w-4 h-4" />
+            </span>
+            <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-black group-hover:translate-x-0.5 transition-transform" />
+          </div>
+          <div className="text-sm font-bold text-black">Huawei OLT GUI</div>
+          <div className="text-[11px] text-slate-600 mt-0.5">ONU Add/Del, SN/MAC, Routes</div>
+        </button>
+
+        <button
+          onClick={() => onNavigateToTab('topology')}
+          className="text-left p-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 hover:border-black transition-all cursor-pointer group"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="p-2 rounded-lg bg-cyan-50 text-cyan-800 border border-cyan-200">
+              <Share2 className="w-4 h-4" />
+            </span>
+            <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-black group-hover:translate-x-0.5 transition-transform" />
+          </div>
+          <div className="text-sm font-bold text-black">Packet Tracer CLI</div>
+          <div className="text-[11px] text-slate-600 mt-0.5">Graphical IP to Brand/OS CLI</div>
+        </button>
+      </div>
+
+      {/* GitHub APK Download Notice */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-black">
         <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 shrink-0">
+          <div className="p-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 shrink-0">
             <Key className="w-4 h-4" />
           </div>
           <div>
-            <span className="font-semibold text-emerald-300">GitHub থেকে আসল APK ডাউনলোড করার নিয়ম: </span>
-            <span className="text-slate-300">
+            <span className="font-bold text-black">GitHub থেকে আসল APK ডাউনলোড করার নিয়ম: </span>
+            <span className="text-slate-700">
               যেহেতু আপনি Git Push করেছেন, GitHub Actions আপনার ফোনের জন্য <strong>app-release.apk</strong> তৈরি করে রেখেছে। স্ট্যাটাস বারে চাবি (🔑) আইকন ও আসল আইপি চেঞ্জের জন্য এপিকে নামিয়ে নিন।
             </span>
           </div>
@@ -173,16 +319,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             href="https://github.com/imrafikul/Termius-clone/releases"
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs transition cursor-pointer shadow-md"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black hover:bg-slate-800 text-white font-bold text-xs transition cursor-pointer whitespace-nowrap"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Click to Download APK</span>
           </a>
           <button
             onClick={() => setShowApkGuide(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-black border border-slate-300 font-semibold text-xs transition cursor-pointer whitespace-nowrap"
           >
-            <HelpCircle className="w-3.5 h-3.5 text-cyan-400" />
+            <HelpCircle className="w-3.5 h-3.5 text-slate-700" />
             <span>নিয়মাবলী</span>
           </button>
         </div>
@@ -190,58 +336,63 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* Account Isolation & 1-Month Trial Status */}
       {!user ? (
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-300 shadow-sm">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-3 rounded-xl bg-white border border-slate-200 text-xs text-black">
           <div className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 shrink-0">
+            <div className="p-1.5 rounded-lg bg-slate-100 text-black shrink-0">
               <Lock className="w-4 h-4" />
             </div>
             <div>
-              <span className="font-semibold text-slate-100">১ মাসের ফ্রি ট্রায়াল ও ডাটা সুরক্ষা: </span>
-              <span className="text-slate-400">
+              <span className="font-bold text-black">১ মাসের ফ্রি ট্রায়াল ও ডাটা সুরক্ষা: </span>
+              <span className="text-slate-700">
                 Google অ্যাকাউন্ট দিয়ে লগইন করলে কোনো কার্ড ছাড়াই সাথে সাথে ১ মাসের ফুল ট্রায়াল পাবেন এবং আপনার PPTP তথ্য ক্লাউডে সম্পূর্ণ সুরক্ষিত থাকবে।
               </span>
             </div>
           </div>
           <button
             onClick={loginWithGoogle}
-            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition cursor-pointer"
+            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black hover:bg-slate-800 text-white font-bold text-xs transition cursor-pointer whitespace-nowrap"
           >
             Google লগইন (Free Trial)
           </button>
         </div>
       ) : (
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-xs text-slate-300">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-black">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
+            <Sparkles className="w-4 h-4 text-emerald-700 shrink-0" />
             <span>
               <strong>1 Month Free Trial Active:</strong> আপনার অ্যাকাউন্টে {license?.daysRemaining || 30} দিন বাকি রয়েছে (কোনো পেমেন্ট তথ্য ছাড়া চালু)।
             </span>
           </div>
-          <span className="text-emerald-400 font-mono text-[11px] bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/60">
-            {user.email}
-          </span>
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <span className="text-emerald-900 font-mono text-[11px] bg-white px-2 py-1 rounded border border-emerald-200">
+              {user.email}
+            </span>
+            <button
+              onClick={logout}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-xs transition cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Logout</span>
+            </button>
+          </div>
         </div>
       )}
 
-      {/* 1. Main Tunnel Management Hero */}
+      {/* 1. Real L2TP/SSTP VPN Tunnel & Honest PPTP Controller */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6 relative overflow-hidden shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
+        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-6 relative overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200">
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-mono uppercase tracking-wider text-slate-400">
-                  VPN Session Controller
-                </span>
-                <span className="text-slate-600">·</span>
-                <span className="text-xs text-slate-400 font-mono">
-                  Android 12-15+ VpnService
-                </span>
+              <div className="flex items-center gap-2 mb-1 text-xs font-mono text-slate-600">
+                <span>Real MikroTik VPN Controller</span>
+                <span>·</span>
+                <span>Zero MikroTik Admin Login Needed</span>
               </div>
-              <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-                <span>{activeProfile ? activeProfile.name : 'Select a VPN Profile'}</span>
+              <h2 className="text-2xl font-bold text-black tracking-tight flex items-center gap-2">
+                <span>{activeProfile ? activeProfile.name : 'Select a Profile'}</span>
               </h2>
-              <p className="text-xs text-slate-400 mt-1 font-mono">
-                Concentrator: {activeProfile?.server || '—'} : {activeProfile?.port || 1723}
+              <p className="text-xs text-slate-600 mt-1 font-mono">
+                Server: {activeProfile?.server || '—'} · Protocol: {activeProtocol.toUpperCase()} · PPP User: {activeProfile?.username || '—'}
               </p>
             </div>
 
@@ -249,17 +400,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={onOpenAddProfile}
-                className="px-3 py-2 bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 rounded-lg text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer shadow-sm"
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-black border border-slate-300 rounded-lg text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer"
               >
-                <Plus className="w-4 h-4 text-cyan-400" />
-                <span>+ Add PPTP Profile</span>
+                <Plus className="w-4 h-4" />
+                <span>+ Add Profile</span>
               </button>
 
               <select
                 value={activeProfile?.id || ''}
                 onChange={(e) => setActiveProfileId(e.target.value)}
-                disabled={isConnected || isPending}
-                className="bg-slate-800 border border-slate-700 text-xs text-slate-200 rounded-lg px-3 py-2 font-mono focus:outline-none focus:border-cyan-500 cursor-pointer"
+                disabled={isVpnConnected || isGatewayReady || isPending}
+                className="bg-white border border-slate-300 text-xs text-black rounded-lg px-3 py-2 font-mono focus:outline-none focus:border-black cursor-pointer"
               >
                 {profiles.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -271,208 +422,288 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <button
                 onClick={onToggleConnect}
                 disabled={isPending || !activeProfile}
-                className={`px-5 py-2 rounded-lg text-xs font-bold transition-all duration-150 flex items-center gap-2 cursor-pointer shadow-sm ${
-                  isConnected
-                    ? 'bg-red-500/20 text-red-300 border border-red-500/40 hover:bg-red-500/30'
+                className={`px-5 py-2 rounded-lg text-xs font-bold transition-all duration-150 flex items-center gap-2 cursor-pointer ${
+                  isVpnConnected || isGatewayReady
+                    ? 'bg-red-600 text-white hover:bg-red-700'
                     : isPending
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                    : 'bg-cyan-500 text-slate-950 hover:bg-cyan-400 font-bold'
+                    ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                    : 'bg-black text-white hover:bg-slate-800'
                 }`}
               >
-                {isConnected ? (
+                {isVpnConnected ? (
                   <>
                     <Square className="w-3.5 h-3.5 fill-current" />
-                    <span>Disconnect</span>
+                    <span>Disconnect VPN</span>
+                  </>
+                ) : isGatewayReady ? (
+                  <>
+                    <Square className="w-3.5 h-3.5 fill-current" />
+                    <span>Stop Jump-GW</span>
                   </>
                 ) : isPending ? (
                   <>
                     <Clock className="w-3.5 h-3.5 animate-spin" />
-                    <span>Negotiating...</span>
+                    <span>Connecting...</span>
                   </>
                 ) : (
                   <>
                     <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>Start Tunnel</span>
+                    <span>{activeProtocol === 'pptp' ? 'Probe PPTP' : `Connect ${activeProtocol.toUpperCase()} VPN`}</span>
                   </>
                 )}
               </button>
             </div>
           </div>
 
-          {/* Quick Routing Mode Switcher Bar */}
-          <div className="bg-slate-950/80 border border-slate-800 rounded-lg p-3 my-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2">
-              <span className={`w-2.5 h-2.5 rounded-full ${isFullTunnel ? 'bg-blue-400 ring-2 ring-blue-500/30' : 'bg-cyan-400'}`}></span>
-              <div>
-                <span className="font-semibold text-slate-200">বর্তমান মোড: </span>
-                <span className={isFullTunnel ? 'text-blue-300 font-bold' : 'text-cyan-300 font-bold'}>
-                  {isFullTunnel ? 'Full Internet VPN (ফোনের আইপি পরিবর্তন)' : 'Split Tunnel (রিমোট সাবনেট অনলি)'}
-                </span>
-                <span className="text-slate-400 ml-2 hidden sm:inline">
-                  {isFullTunnel ? '(0.0.0.0/0 - সাধারণ ভিপিএনের মতো)' : '(0.0.0.0/0 বাইপাস)'}
-                </span>
-              </div>
-            </div>
-
-            <button
-              onClick={toggleActiveProfileRoutingMode}
-              disabled={isConnected || isPending}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-mono text-[11px] flex items-center gap-1.5 cursor-pointer transition"
-              title="Toggle between Full VPN (Change IP) and Split Tunnel"
-            >
-              <RefreshCw className="w-3 h-3 text-cyan-400" />
-              <span>Switch to {isFullTunnel ? 'Split Tunnel' : 'Full Internet VPN (Change IP)'}</span>
-            </button>
+          {/* 1-Click VPN Protocol Selector (L2TP / SSTP work REAL from Web without MikroTik Admin Login!) */}
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {(
+              [
+                {
+                  id: 'l2tp',
+                  title: 'L2TP (UDP 1701)',
+                  badge: 'Web Live ✓',
+                  desc: 'একই /ppp secret · MikroTik লগইন ছাড়াই Direct Ping/Trace/Telnet',
+                },
+                {
+                  id: 'sstp',
+                  title: 'SSTP (TCP 443)',
+                  badge: 'Web Live ✓',
+                  desc: 'TLS টানেল · একই /ppp secret · ফায়ারওয়াল ফ্রেন্ডলি',
+                },
+                {
+                  id: 'pptp',
+                  title: 'PPTP (TCP 1723)',
+                  badge: 'APK / PC Only',
+                  desc: 'GRE 47 ওয়েবে ব্লকড · আসল PPTP-র জন্য Android APK ব্যবহার করুন',
+                },
+              ] as const
+            ).map((item) => {
+              const selected = activeProtocol === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  disabled={isVpnConnected || isPending || !activeProfile}
+                  onClick={() => void handleSelectProtocol(item.id)}
+                  className={`p-2.5 rounded-lg border text-left transition cursor-pointer disabled:opacity-60 ${
+                    selected
+                      ? item.id === 'pptp'
+                        ? 'bg-amber-50 border-amber-500 text-black'
+                        : 'bg-emerald-50 border-emerald-600 text-black'
+                      : 'bg-white border-slate-200 hover:border-black text-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-xs font-bold font-mono text-black">{item.title}</span>
+                    <span
+                      className={`text-[10px] font-bold font-mono ${
+                        item.id === 'pptp' ? 'text-amber-800' : 'text-emerald-700'
+                      }`}
+                    >
+                      {item.badge}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-700 mt-1 leading-snug">{item.desc}</p>
+                </button>
+              );
+            })}
           </div>
 
-          {/* Key Metrics Strip */}
+          {/* Setup Tip for 1-line MikroTik Enable (No Admin Login Needed from Website!) */}
+          {!isVpnConnected && (
+            <div className="mt-3 p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs text-black space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-black text-[11px]">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>
+                  {activeProtocol === 'l2tp'
+                    ? 'MikroTik-এ শুধু একবার L2TP Server অন রাখলেই হবে (একই PPTP ইউজার/পাসওয়ার্ড দিয়ে কানেক্ট হবে):'
+                    : activeProtocol === 'sstp'
+                    ? 'MikroTik-এ শুধু একবার SSTP Server অন রাখলেই হবে (একই PPTP ইউজার/পাসওয়ার্ড দিয়ে কানেক্ট হবে):'
+                    : 'ওয়েবে PPTP GRE 47 ব্লকড — সরাসরি Private IP Ping/Telnet করতে উপরে L2TP বা SSTP সিলেক্ট করুন, অথবা Android APK ইনস্টল করুন।'}
+                </span>
+              </div>
+              {activeProtocol === 'l2tp' && (
+                <code className="block text-[11px] font-mono bg-white border border-slate-200 rounded px-2.5 py-1.5 text-black select-all">
+                  /interface l2tp-server server set enabled=yes use-ipsec=no
+                </code>
+              )}
+              {activeProtocol === 'sstp' && (
+                <code className="block text-[11px] font-mono bg-white border border-slate-200 rounded px-2.5 py-1.5 text-black select-all">
+                  /interface sstp-server server set enabled=yes
+                </code>
+              )}
+            </div>
+          )}
+
+          {/* Live Error Banner if Connection Failed */}
+          {isError && connectionStats.lastError && (
+            <div className="mt-3 p-3 rounded-lg bg-red-50 border border-red-300 text-xs text-red-900 flex items-start gap-2">
+              <XCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+              <div className="font-mono text-[11px] break-all">{connectionStats.lastError}</div>
+            </div>
+          )}
+
+          {/* 100% Real Live Tunnel Metrics Strip (Zero Fake Values) */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4">
-            <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3">
-              <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between">
-                <span>Tunnel IP</span>
-                <Server className="w-3.5 h-3.5 text-cyan-400" />
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+              <div className="text-[11px] font-mono text-slate-600 flex items-center justify-between">
+                <span>VPN Tunnel Status</span>
+                {isVpnConnected ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                ) : (
+                  <XCircle className="w-3.5 h-3.5 text-red-600" />
+                )}
               </div>
-              <div className="text-base font-bold text-white font-mono mt-1">
-                {isConnected ? connectionStats.assignedTunnelIp : '—'}
+              <div className={`text-sm font-bold font-mono mt-1 ${isVpnConnected ? 'text-emerald-700' : 'text-red-700'}`}>
+                {isVpnConnected ? `ONLINE (${(connectionStats.activeProtocol || 'l2tp').toUpperCase()})` : 'OFFLINE'}
               </div>
-              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                Gateway: {isConnected ? connectionStats.remoteGatewayIp : '—'}
-              </div>
-            </div>
-
-            <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3">
-              <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between">
-                <span>Uptime</span>
-                <Clock className="w-3.5 h-3.5 text-emerald-400" />
-              </div>
-              <div className="text-base font-bold text-white font-mono mt-1 tabular-nums">
-                {isConnected ? formatSeconds(connectionStats.uptimeSeconds) : '00:00:00'}
-              </div>
-              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                RTT: {isConnected ? `${connectionStats.rttMs} ms` : '—'}
+              <div className="text-[10px] text-slate-600 font-mono mt-0.5">
+                {isVpnConnected ? `IF: ${connectionStats.iface || 'vpn0'} · /ppp active ✓` : 'Not Connected'}
               </div>
             </div>
 
-            <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3">
-              <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between">
-                <span>TX / Upload</span>
-                <ArrowUpRight className="w-3.5 h-3.5 text-cyan-400" />
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+              <div className="text-[11px] font-mono text-slate-600 flex items-center justify-between">
+                <span>Assigned PPP IP</span>
+                <Server className="w-3.5 h-3.5 text-black" />
               </div>
-              <div className="text-base font-bold text-white font-mono mt-1 tabular-nums">
-                {isConnected ? `${connectionStats.rateOutKbps} KB/s` : '0.0 KB/s'}
+              <div className="text-sm font-bold text-black font-mono mt-1 tabular-nums">
+                {isVpnConnected && connectionStats.assignedTunnelIp ? connectionStats.assignedTunnelIp : '—'}
               </div>
-              <div className="text-[10px] text-slate-500 font-mono mt-0.5 tabular-nums">
-                Total: {formatBytes(connectionStats.bytesOut)}
+              <div className="text-[10px] text-slate-600 font-mono mt-0.5 truncate">
+                GW: {isVpnConnected ? connectionStats.remoteGatewayIp : '—'}
               </div>
             </div>
 
-            <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3">
-              <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between">
-                <span>RX / Download</span>
-                <ArrowDownLeft className="w-3.5 h-3.5 text-purple-400" />
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+              <div className="text-[11px] font-mono text-slate-600 flex items-center justify-between">
+                <span>Real Traffic</span>
+                <Activity className="w-3.5 h-3.5 text-blue-700" />
               </div>
-              <div className="text-base font-bold text-white font-mono mt-1 tabular-nums">
-                {isConnected ? `${connectionStats.rateInKbps} KB/s` : '0.0 KB/s'}
+              <div className="text-sm font-bold text-black font-mono mt-1 tabular-nums">
+                {isVpnConnected ? `↓ ${formatBytes(connectionStats.bytesIn)}` : '0 B'}
               </div>
-              <div className="text-[10px] text-slate-500 font-mono mt-0.5 tabular-nums">
-                Total: {formatBytes(connectionStats.bytesIn)}
+              <div className="text-[10px] text-slate-600 font-mono mt-0.5 tabular-nums">
+                ↑ {isVpnConnected ? formatBytes(connectionStats.bytesOut) : '0 B'} ({connectionStats.packetsIn + connectionStats.packetsOut} pkts)
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+              <div className="text-[11px] font-mono text-slate-600 flex items-center justify-between">
+                <span>Tunnel Uptime</span>
+                <Clock className="w-3.5 h-3.5 text-emerald-700" />
+              </div>
+              <div className="text-sm font-bold text-black font-mono mt-1 tabular-nums">
+                {isVpnConnected ? formatSeconds(connectionStats.uptimeSeconds) : '00:00:00'}
+              </div>
+              <div className="text-[10px] text-slate-600 font-mono mt-0.5">
+                {isVpnConnected ? 'Private Ping/Trace/Telnet ✓' : 'Idle'}
               </div>
             </div>
           </div>
 
           {/* Quick Actions Footer */}
-          <div className="mt-6 pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2 text-slate-400 font-mono">
-              <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-              <span>TUN Driver: RFC 2637 GRE Bridge (Proto 47)</span>
-              <span className="text-slate-600">·</span>
-              <span>MTU {activeProfile?.mtu || 1400}</span>
+          <div className="mt-6 pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 text-slate-700 font-mono">
+              <Cpu className="w-3.5 h-3.5 text-black" />
+              <span>
+                {isVpnConnected
+                  ? `Direct Tunnel Active (${connectionStats.iface || 'vpn0'}): ${connectionStats.activeRoutes.join(', ')}`
+                  : 'Connect L2TP/SSTP for direct private IP Ping, Traceroute & Telnet'}
+              </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => onNavigateToTab('webui')}
+                className="px-2.5 py-1 rounded bg-black hover:bg-slate-800 text-white font-mono text-[11px] font-semibold transition-colors cursor-pointer"
+              >
+                Open WebUI
+              </button>
               <button
                 onClick={() => onNavigateToTab('terminal')}
-                className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono text-[11px] transition-colors cursor-pointer"
+                className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-black border border-slate-300 font-mono text-[11px] font-semibold transition-colors cursor-pointer"
               >
-                Open Terminal
+                Direct Telnet
               </button>
               <button
                 onClick={() => onNavigateToTab('diagnostics')}
-                className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-[11px] transition-colors cursor-pointer"
+                className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-black border border-slate-300 font-mono text-[11px] font-semibold transition-colors cursor-pointer"
               >
-                Probe Ports
+                Direct Ping / Trace
+              </button>
+              <button
+                onClick={() => onNavigateToTab('topology')}
+                className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-black border border-slate-300 font-mono text-[11px] font-semibold transition-colors cursor-pointer"
+              >
+                Topology CLI
               </button>
             </div>
           </div>
         </div>
 
-        {/* 2. LIVE PUBLIC IP & VPN AUDIT BOX */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between shadow-sm">
+        {/* 2. REAL VISITOR IP & LIVE TUNNEL AUDIT BOX (ZERO HARDCODED FAKE IPs) */}
+        <div className="bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between">
           <div>
-            <div className="flex items-center gap-2 text-xs font-mono text-cyan-400 uppercase tracking-wider mb-2">
-              <Globe className="w-4 h-4" />
-              <span>Live Public IP Audit</span>
+            <div className="flex items-center gap-2 text-xs font-mono text-slate-700 mb-2">
+              <Globe className="w-4 h-4 text-black" />
+              <span>Real Network &amp; Tunnel Audit</span>
             </div>
-            <h3 className="text-lg font-bold text-white tracking-tight">
-              ফোন আইপি পরিবর্তন ও নিরাপত্তা
+            <h3 className="text-lg font-bold text-black tracking-tight">
+              আসল আইপি ও VPN টানেল স্ট্যাটাস
             </h3>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              আগে স্প্লিট টানেল মোড থাকায় সাধারণ ইন্টারনেটের আইপি পরিবর্তন হয়নি। এখন <strong>Full Internet VPN</strong> অন করলে সব ইন্টারনেট ভিপিএন দিয়ে যাবে এবং আপনার ফোন আইপি পরিবর্তন হবে।
+            <p className="text-xs text-slate-700 mt-2 leading-relaxed">
+              L2TP বা SSTP কানেক্ট হলে সার্ভার সরাসরি আপনার MikroTik-এ লগইন করে <strong>/ppp active</strong>-এ Online হবে এবং যেকোনো Private IP-তে সরাসরি Ping, Traceroute ও Telnet কাজ করবে।
             </p>
 
             <div className="mt-4 space-y-3">
-              <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
-                <div className="text-[10px] font-mono text-slate-400 mb-1">
-                  ফোনের নিজস্ব লোকাল আইপি (Native ISP):
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
+                <div className="text-[10px] font-mono text-slate-600 mb-1">
+                  আপনার বর্তমান আসল পাবলিক আইপি (Detected):
                 </div>
-                <div className="font-mono text-sm font-bold text-slate-200">
-                  103.145.88.24
+                <div className="font-mono text-sm font-bold text-black break-all">
+                  {realVisitorIp}
                 </div>
-                <div className="text-[10px] text-slate-500 font-sans mt-0.5">
-                  Dhaka, Bangladesh · Local Operator
+                <div className="text-[10px] text-slate-600 font-sans mt-0.5">
+                  সরাসরি আপনার কানেকশন থেকে পাওয়া আসল আইপি
                 </div>
               </div>
 
-              <div className={`p-3 rounded-lg border ${
-                isConnected && isFullTunnel
-                  ? 'bg-blue-950/40 border-blue-500/50 text-blue-200'
-                  : 'bg-slate-950 border-slate-800 text-slate-400'
-              }`}>
+              <div
+                className={`p-3 rounded-lg border text-black ${
+                  isVpnConnected ? 'bg-emerald-50 border-emerald-300' : 'bg-red-50 border-red-200'
+                }`}
+              >
                 <div className="text-[10px] font-mono mb-1 flex items-center justify-between">
-                  <span>ভিপিএন টানেল এক্সিট আইপি:</span>
-                  {isConnected && isFullTunnel && (
-                    <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.2 rounded font-bold">
-                      IP CHANGED
-                    </span>
-                  )}
+                  <span>সার্ভার VPN টানেল (vpn0):</span>
+                  <span className={`text-[10px] font-bold ${isVpnConnected ? 'text-emerald-700' : 'text-red-700'}`}>
+                    {isVpnConnected ? 'ONLINE ✓' : 'OFFLINE'}
+                  </span>
                 </div>
-                <div className={`font-mono text-sm font-bold ${
-                  isConnected && isFullTunnel ? 'text-cyan-300' : 'text-slate-500'
-                }`}>
-                  {isConnected ? (isFullTunnel ? (activeProfile?.server || '185.122.90.5') : '103.145.88.24 (Split Bypass)') : 'Disconnected'}
+                <div className={`font-mono text-xs font-bold ${isVpnConnected ? 'text-emerald-900' : 'text-red-800'}`}>
+                  {isVpnConnected
+                    ? `${connectionStats.assignedTunnelIp} → ${connectionStats.remoteGatewayIp}`
+                    : 'Not Connected'}
                 </div>
-                <div className="text-[10px] mt-1 font-sans">
-                  {isConnected && isFullTunnel
-                    ? '✓ আপনার ফোনের পাবলিক আইপি সফলভাবে পরিবর্তন হয়েছে। সমস্ত ব্রাউজিং নিরাপদ।'
-                    : isConnected
-                    ? '⚡ স্প্লিট টানেলিং মোড চালু। ফোনের সাধারণ ইন্টারনেট দেশীয় আইপিতে চলছে।'
-                    : 'ভিপিএন কানেক্ট করলে এখানে এক্টিভ আইপি দেখতে পাবেন।'}
+                <div className="text-[10px] mt-1 font-sans text-slate-800">
+                  {isVpnConnected
+                    ? `✓ MikroTik /ppp active-এ Online! এখন MikroTik-এ লগইন ছাড়াই Private IP Ping, Traceroute ও Telnet করুন।`
+                    : 'L2TP/SSTP দিয়ে কানেক্ট করলে এখানে আসল Assigned PPP IP দেখাবে। আসল PPTP-র জন্য Android APK ব্যবহার করুন।'}
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="mt-6 pt-4 border-t border-slate-800">
+          <div className="mt-6 pt-4 border-t border-slate-200">
             <button
               onClick={toggleActiveProfileRoutingMode}
-              className={`w-full py-2 px-3 rounded-lg text-xs font-bold font-mono transition flex items-center justify-center gap-2 cursor-pointer ${
-                isFullTunnel
-                  ? 'bg-blue-600 hover:bg-blue-500 text-white'
-                  : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700'
-              }`}
+              disabled={isVpnConnected || isPending}
+              className="w-full py-2 px-3 rounded-lg text-xs font-bold font-mono transition flex items-center justify-center gap-2 cursor-pointer bg-slate-100 hover:bg-slate-200 text-black border border-slate-300 disabled:opacity-60"
+              title="Toggle Full Private LAN Routing vs Specific Split Subnets"
             >
-              <Globe className="w-3.5 h-3.5" />
-              <span>{isFullTunnel ? 'Full VPN Mode Active (Change IP)' : 'Switch to Full Internet VPN'}</span>
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Routes: {isFullTunnel ? 'All Private LANs (10/172/192)' : 'Custom Split Subnets'}</span>
             </button>
           </div>
         </div>
@@ -481,14 +712,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* 3. Interactive Split Route Simulator & Active Routing Table */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Route Tester */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
-                <Sliders className="w-4 h-4 text-cyan-400" />
+              <h3 className="text-sm font-bold text-black tracking-tight flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-black" />
                 <span>টানেল রুট সিমুলেটর (Route Dispatch Simulator)</span>
               </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs text-slate-600 mt-0.5">
                 যেকোনো আইপিতে প্যাকেট পাঠালে তা ভিপিএন দিয়ে যাবে নাকি সরাসরি মোবাইলে থাকবে তা পরীক্ষা করুন।
               </p>
             </div>
@@ -496,7 +727,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           <form onSubmit={handleTestRoute} className="space-y-4">
             <div>
-              <label className="block text-xs font-mono text-slate-400 mb-1.5">
+              <label className="block text-xs font-mono text-slate-700 mb-1.5">
                 Destination IP to Test:
               </label>
               <div className="flex gap-2">
@@ -505,32 +736,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   value={testIpInput}
                   onChange={(e) => setTestIpInput(e.target.value)}
                   placeholder="e.g. 8.8.8.8 or 192.168.88.1"
-                  className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-cyan-500"
+                  className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-black focus:outline-none focus:border-black"
                 />
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 rounded-lg text-xs font-mono font-semibold transition-colors cursor-pointer"
+                  className="px-4 py-2 bg-black hover:bg-slate-800 text-white rounded-lg text-xs font-mono font-semibold transition-colors cursor-pointer"
                 >
                   Evaluate Route
                 </button>
               </div>
             </div>
 
-            {/* Quick Test Presets */}
             <div className="flex items-center gap-2 text-xs">
-              <span className="text-slate-500 text-[11px]">Presets:</span>
+              <span className="text-slate-600 text-[11px]">Presets:</span>
               <button
                 type="button"
                 onClick={() => setTestIpInput('8.8.8.8')}
-                className="text-cyan-400 hover:underline font-mono text-[11px] cursor-pointer"
+                className="text-blue-700 hover:underline font-mono text-[11px] cursor-pointer font-semibold"
               >
                 8.8.8.8 (Google)
               </button>
-              <span className="text-slate-600">·</span>
+              <span className="text-slate-400">·</span>
               <button
                 type="button"
                 onClick={() => setTestIpInput('192.168.88.1')}
-                className="text-slate-400 hover:underline font-mono text-[11px] cursor-pointer"
+                className="text-slate-700 hover:underline font-mono text-[11px] cursor-pointer font-semibold"
               >
                 192.168.88.1 (Router)
               </button>
@@ -540,17 +770,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div
                 className={`p-3.5 rounded-lg border text-xs ${
                   testResult.isSplit
-                    ? 'bg-blue-950/30 border-blue-800/60 text-blue-200'
-                    : 'bg-emerald-950/30 border-emerald-800/60 text-emerald-200'
+                    ? 'bg-blue-50 border-blue-200 text-black'
+                    : 'bg-emerald-50 border-emerald-200 text-black'
                 }`}
               >
                 <div className="flex items-center justify-between font-mono font-bold mb-1">
                   <span>Target Interface:</span>
-                  <span className={testResult.isSplit ? 'text-blue-400' : 'text-emerald-400'}>
+                  <span className={testResult.isSplit ? 'text-blue-700' : 'text-emerald-700'}>
                     {testResult.targetInterface}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
+                <p className="text-[11px] text-slate-800 leading-relaxed font-sans">
                   {testResult.reason}
                 </p>
               </div>
@@ -559,15 +789,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Active Route Table */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm flex flex-col justify-between">
+        <div className="bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-purple-400" />
+                <h3 className="text-sm font-bold text-black tracking-tight flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-black" />
                   <span>Android TUN রাউটিং টেবিল</span>
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-600 mt-0.5">
                   ভিপিএন কানেক্ট করার সাথে সাথে ফোনে যে রাউটিং রুল ইনজেক্ট হয়।
                 </p>
               </div>
@@ -576,47 +806,41 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs font-mono">
                 <thead>
-                  <tr className="border-b border-slate-800 text-slate-400">
-                    <th className="pb-2 font-medium">Destination CIDR</th>
-                    <th className="pb-2 font-medium">Gateway</th>
-                    <th className="pb-2 font-medium">Interface</th>
-                    <th className="pb-2 font-medium text-right">Policy</th>
+                  <tr className="border-b border-slate-200 text-slate-600">
+                    <th className="pb-2 font-semibold">Destination CIDR</th>
+                    <th className="pb-2 font-semibold">Gateway</th>
+                    <th className="pb-2 font-semibold">Interface</th>
+                    <th className="pb-2 font-semibold text-right">Policy (APK Preview)</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/60">
+                <tbody className="divide-y divide-slate-200">
                   {isFullTunnel ? (
-                    <tr className="text-slate-200">
-                      <td className="py-2 text-cyan-300 font-bold">0.0.0.0/0</td>
-                      <td className="py-2 text-slate-400">10.99.0.1</td>
-                      <td className="py-2 text-slate-300">tun0</td>
-                      <td className="py-2 text-right">
-                        <span className="text-[10px] text-blue-300 font-semibold bg-blue-950/80 border border-blue-700 px-1.5 py-0.5 rounded">
-                          FULL VPN (CHANGE IP)
-                        </span>
+                    <tr className="text-black">
+                      <td className="py-2 font-bold">0.0.0.0/0</td>
+                      <td className="py-2 text-slate-700">{activeProfile?.server || 'Configured PPTP Peer'}</td>
+                      <td className="py-2 text-slate-800">tun0 (Android APK)</td>
+                      <td className="py-2 text-right font-bold text-blue-700">
+                        FULL VPN (APK ONLY)
                       </td>
                     </tr>
                   ) : (
                     <>
                       {activeProfile?.remoteSubnets.map((subnet, idx) => (
-                        <tr key={idx} className="text-slate-200">
-                          <td className="py-2 text-cyan-300 font-bold">{subnet}</td>
-                          <td className="py-2 text-slate-400">10.99.0.1</td>
-                          <td className="py-2 text-slate-300">tun0</td>
-                          <td className="py-2 text-right">
-                            <span className="text-[10px] text-cyan-400 font-semibold bg-cyan-950/60 border border-cyan-800/60 px-1.5 py-0.5 rounded">
-                              SPLIT TUNNEL
-                            </span>
+                        <tr key={idx} className="text-black">
+                          <td className="py-2 font-bold">{subnet}</td>
+                          <td className="py-2 text-slate-700">{activeProfile?.server || 'Configured PPTP Peer'}</td>
+                          <td className="py-2 text-slate-800">tun0 (Android APK)</td>
+                          <td className="py-2 text-right font-bold text-cyan-800">
+                            SPLIT TUNNEL (APK)
                           </td>
                         </tr>
                       ))}
-                      <tr className="text-slate-400">
+                      <tr className="text-slate-700">
                         <td className="py-2">0.0.0.0/0</td>
                         <td className="py-2">Default Gateway</td>
-                        <td className="py-2 text-slate-300">wlan0 / rmnet0</td>
-                        <td className="py-2 text-right">
-                          <span className="text-[10px] text-emerald-400 font-semibold bg-emerald-950/60 border border-emerald-800/60 px-1.5 py-0.5 rounded">
-                            BYPASS (FAST)
-                          </span>
+                        <td className="py-2">wlan0 / rmnet0</td>
+                        <td className="py-2 text-right font-bold text-emerald-700">
+                          BYPASS (FAST)
                         </td>
                       </tr>
                     </>
@@ -626,48 +850,46 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-800 text-[11px] text-slate-500 font-mono">
-            {isFullTunnel
-              ? '✓ Full Tunnel Active: Android OS routes all apps & traffic via VpnService TUN file descriptor.'
-              : '✓ Split Tunnel Active: Regular internet bypasses VPN.'}
+          <div className="mt-4 pt-3 border-t border-slate-200 text-[11px] text-slate-700 font-mono">
+            Preview only on Web — OS-level tun0 routing applies only when connected via the native Android APK or OS PPTP client.
           </div>
         </div>
       </div>
 
       {/* 4. Live PPTP Control & Protocol Handshake Inspector */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm">
+      <div className="bg-white border border-slate-200 rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
-              <Activity className="w-4 h-4 text-cyan-400" />
+            <h3 className="text-sm font-bold text-black tracking-tight flex items-center gap-2">
+              <Activity className="w-4 h-4 text-black" />
               <span>PPTP RFC 2637 &amp; PPP Handshake ইভেন্ট লগ</span>
             </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-600 mt-0.5">
               কন্ট্রোল কানেকশন, GRE টানেল এবং আইপি পরিবর্তন ইভেন্টসমূহ।
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-slate-400 font-mono">
-              Status: <span className="text-cyan-400 font-bold">{connectionState}</span>
+            <span className="text-[11px] text-slate-700 font-mono">
+              Status: <span className="text-black font-bold">{connectionState}</span>
             </span>
           </div>
         </div>
 
-        <div className="bg-black/90 rounded-lg p-4 font-mono text-xs text-slate-300 h-64 overflow-y-auto border border-slate-800 space-y-2">
+        <div className="bg-slate-50 rounded-lg p-4 font-mono text-xs text-black h-64 overflow-y-auto border border-slate-200 space-y-2">
           {logs.map((log) => (
             <div key={log.id} className="flex items-start gap-3">
-              <span className="text-slate-500 shrink-0 text-[11px]">{log.timestamp}</span>
+              <span className="text-slate-500 shrink-0 text-[11px] tabular-nums">{log.timestamp}</span>
               <span
-                className={`text-[10px] px-1 py-0.2 rounded shrink-0 font-bold ${
+                className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 font-bold ${
                   log.component === 'CONTROL'
-                    ? 'bg-blue-900/60 text-blue-300'
+                    ? 'bg-blue-100 text-blue-800'
                     : log.component === 'PPP'
-                    ? 'bg-purple-900/60 text-purple-300'
+                    ? 'bg-purple-100 text-purple-800'
                     : log.component === 'GRE'
-                    ? 'bg-emerald-900/60 text-emerald-300'
+                    ? 'bg-emerald-100 text-emerald-800'
                     : log.component === 'ROUTE'
-                    ? 'bg-cyan-900/60 text-cyan-300'
-                    : 'bg-slate-800 text-slate-300'
+                    ? 'bg-cyan-100 text-cyan-900'
+                    : 'bg-slate-200 text-black'
                 }`}
               >
                 [{log.component}]
@@ -675,12 +897,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span
                 className={`flex-1 break-all ${
                   log.level === 'ERROR'
-                    ? 'text-red-400'
+                    ? 'text-red-700 font-semibold'
                     : log.level === 'WARN'
-                    ? 'text-amber-300'
-                    : log.level === 'PACKET'
-                    ? 'text-slate-400'
-                    : 'text-slate-200'
+                    ? 'text-amber-800'
+                    : 'text-black'
                 }`}
               >
                 {log.message}
