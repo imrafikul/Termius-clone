@@ -434,18 +434,62 @@ async function runSystemPingSingle(
   ttl?: number,
   timeoutSec = 1
 ): Promise<SinglePingOutcome> {
-  const args = ['-n', '-c', '1', '-W', String(timeoutSec)];
-  if (typeof ttl === 'number' && ttl > 0 && ttl <= 64) {
-    args.push('-t', String(ttl));
+  const isWin = process.platform === 'win32';
+  const isMac = process.platform === 'darwin';
+  let args: string[];
+
+  if (isWin) {
+    args = ['-n', '1', '-w', String(Math.max(500, timeoutSec * 1000))];
+    if (typeof ttl === 'number' && ttl > 0 && ttl <= 64) {
+      args.push('-i', String(ttl));
+    }
+    args.push(host);
+  } else if (isMac) {
+    args = ['-n', '-c', '1', '-W', String(Math.max(500, timeoutSec * 1000))];
+    if (typeof ttl === 'number' && ttl > 0 && ttl <= 64) {
+      args.push('-m', String(ttl));
+    }
+    args.push(host);
+  } else {
+    args = ['-n', '-c', '1', '-W', String(timeoutSec)];
+    if (typeof ttl === 'number' && ttl > 0 && ttl <= 64) {
+      args.push('-t', String(ttl));
+    }
+    args.push(host);
   }
-  args.push(host);
 
   const start = Date.now();
   try {
     const { stdout } = await execFileAsync('ping', args, {
-      timeout: (timeoutSec + 1) * 1000 + 500,
+      timeout: (timeoutSec + 1) * 1000 + 800,
     });
     const elapsed = Math.max(1, Date.now() - start);
+
+    // Windows can exit with code 0 even when returning "TTL expired in transit" or "Destination host unreachable"
+    const winExceed = stdout.match(/(?:Reply\s+)?from\s+([0-9a-fA-F.:]+)[:\s]+.*?(?:TTL expired in transit|Time to live exceeded|Hop limit exceeded)/i);
+    if (winExceed) {
+      return {
+        ok: true,
+        reached: false,
+        hopIp: winExceed[1].replace(/:+$/, ''),
+        ttl: ttl ?? null,
+        latencyMs: elapsed,
+        permissionDenied: false,
+      };
+    }
+
+    if (/Request timed out|Destination (?:host|net) unreachable|100%\s+loss|0\s+received/i.test(stdout)) {
+      return {
+        ok: false,
+        reached: false,
+        hopIp: null,
+        ttl: null,
+        latencyMs: timeoutSec * 1000,
+        permissionDenied: false,
+        error: 'Request timed out',
+      };
+    }
+
     const timeMatch = stdout.match(/time[=<]\s*([\d.]+)\s*ms/i);
     const ttlMatch = stdout.match(/ttl=(\d+)/i);
     const fromMatch = stdout.match(/from\s+([0-9a-fA-F.:]+)(?:[:\s(])/i);
@@ -481,8 +525,8 @@ async function runSystemPingSingle(
       };
     }
 
-    // Check for intermediate router TTL exceeded response: "From 10.0.0.1 icmp_seq=1 Time to live exceeded"
-    const exceedMatch = combined.match(/From\s+([0-9a-fA-F.:]+).*?(?:Time to live exceeded|Hop limit exceeded)/i);
+    // Check for intermediate router TTL exceeded response (Linux + Windows + macOS)
+    const exceedMatch = combined.match(/From\s+([0-9a-fA-F.:]+).*?(?:Time to live exceeded|TTL expired in transit|Hop limit exceeded)/i);
     if (exceedMatch) {
       return {
         ok: true,
@@ -748,7 +792,7 @@ app.post('/api/pptp/probe', async (req: Request, res: Response) => {
 // ==============================================================================
 interface RealVpnState {
   status: 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'ERROR';
-  protocol: 'l2tp' | 'sstp' | null;
+  protocol: 'pptp' | 'l2tp' | 'sstp' | null;
   host: string;
   port: number;
   username: string;
@@ -799,8 +843,15 @@ function pushVpnLog(component: string, level: string, message: string) {
   }
 }
 
+const WIN_VPN_NAME = 'UniversalWebUI_VPN';
+
 function stopActiveVpnDaemon(): Promise<void> {
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
+    if (process.platform === 'win32') {
+      try {
+        await execFileAsync('rasdial', [WIN_VPN_NAME, '/DISCONNECT'], { timeout: 6000 });
+      } catch {}
+    }
     const proc = activeVpnProc;
     activeVpnProc = null;
     if (!proc || proc.killed || proc.exitCode !== null) {
@@ -841,6 +892,15 @@ function stopActiveVpnDaemon(): Promise<void> {
   });
 }
 
+app.get('/api/system/runtime', (_req: Request, res: Response) => {
+  res.json({
+    platform: process.platform,
+    arch: process.arch,
+    nativePptpSupported: process.platform === 'win32',
+    standalone: process.env.STANDALONE_DESKTOP === 'true',
+  });
+});
+
 app.get('/api/vpn/status', (_req: Request, res: Response) => {
   const uptimeSeconds =
     realVpnState.status === 'CONNECTED' && realVpnState.connectedAt
@@ -873,7 +933,10 @@ app.post('/api/vpn/connect', async (req: Request, res: Response) => {
       subnets = ['0.0.0.0/0'],
     } = req.body || {};
 
-    const cleanProto: 'l2tp' | 'sstp' = String(protocol).toLowerCase() === 'sstp' ? 'sstp' : 'l2tp';
+    const rawProto = String(protocol).toLowerCase();
+    const cleanProto: 'pptp' | 'l2tp' | 'sstp' =
+      rawProto === 'pptp' ? 'pptp' : rawProto === 'sstp' ? 'sstp' : 'l2tp';
+
     if (!host || typeof host !== 'string' || !isValidHost(host)) {
       return res.status(400).json({ connected: false, error: 'Valid MikroTik Server IP or hostname is required.' });
     }
@@ -882,7 +945,7 @@ app.post('/api/vpn/connect', async (req: Request, res: Response) => {
     }
 
     const cleanHost = host.trim();
-    const defaultPort = cleanProto === 'sstp' ? 443 : 1701;
+    const defaultPort = cleanProto === 'pptp' ? 1723 : cleanProto === 'sstp' ? 443 : 1701;
     const targetPort = Math.max(1, Math.min(65535, parseInt(String(port || defaultPort), 10) || defaultPort));
 
     // Cleanly stop any prior tunnel first
@@ -905,6 +968,124 @@ app.post('/api/vpn/connect', async (req: Request, res: Response) => {
     realVpnState.packetsOut = 0;
     realVpnState.error = null;
     realVpnState.logs = [];
+
+    // NATIVE WINDOWS DESKTOP APP DIALER: Real PPTP (GRE 47) / L2TP / SSTP via Windows RAS!
+    if (process.platform === 'win32') {
+      const psTunnel = cleanProto === 'pptp' ? 'Pptp' : cleanProto === 'sstp' ? 'Sstp' : 'L2tp';
+      const safeServer = cleanHost.replace(/'/g, "''");
+      const validCidrs = Array.isArray(subnets)
+        ? subnets.map((s) => String(s).trim()).filter((s) => /^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/.test(s) && s !== '0.0.0.0/0')
+        : [];
+      const useSplit = validCidrs.length > 0;
+
+      const routeCmds = validCidrs
+        .map(
+          (cidr) =>
+            `Add-VpnConnectionRoute -ConnectionName '${WIN_VPN_NAME}' -DestinationPrefix '${cidr}' -PassThru -ErrorAction SilentlyContinue | Out-Null`
+        )
+        .join('; ');
+
+      const buildProfileScript = (authList: string) =>
+        [
+          `$ErrorActionPreference = 'SilentlyContinue'`,
+          `Remove-VpnConnection -Name '${WIN_VPN_NAME}' -Force -PassThru | Out-Null`,
+          `$ErrorActionPreference = 'Stop'`,
+          `Add-VpnConnection -Name '${WIN_VPN_NAME}' -ServerAddress '${safeServer}' -TunnelType ${psTunnel} -AuthenticationMethod ${authList} -EncryptionLevel Optional ${
+            useSplit ? '-SplitTunneling' : ''
+          } -RememberCredential:$false -Force`,
+          routeCmds,
+        ]
+          .filter(Boolean)
+          .join('; ');
+
+      pushVpnLog('CONTROL', 'INFO', `Configuring native Windows ${psTunnel} VPN profile for ${cleanHost}...`);
+      try {
+        try {
+          await execFileAsync(
+            'powershell.exe',
+            ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', buildProfileScript('MSChapv2,Chap,Pap')],
+            { timeout: 14000 }
+          );
+        } catch {
+          // Fallback to MSChapv2 only if Windows build rejects mixed Pap+MSChapv2
+          await execFileAsync(
+            'powershell.exe',
+            ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', buildProfileScript('MSChapv2')],
+            { timeout: 14000 }
+          );
+        }
+      } catch (psErr: any) {
+        const msg = `Windows VPN profile error: ${psErr?.stderr || psErr?.message || 'PowerShell failed'}`;
+        realVpnState.status = 'ERROR';
+        realVpnState.error = msg;
+        pushVpnLog('CONTROL', 'ERROR', msg);
+        return res.status(502).json({ connected: false, status: 'ERROR', error: msg, logs: realVpnState.logs });
+      }
+
+      pushVpnLog('PPTP_HANDSHAKE', 'INFO', `Dialing Windows native ${psTunnel} tunnel to ${cleanHost} as "${username.trim()}"...`);
+      try {
+        const { stdout } = await execFileAsync('rasdial', [WIN_VPN_NAME, username.trim(), String(password || '')], {
+          timeout: 25000,
+        });
+        pushVpnLog('AUTH', 'INFO', stdout.trim().split(/\r?\n/).slice(-2).join(' · ') || 'Connected via Windows RAS');
+
+        // Read REAL assigned VPN IPv4 from Windows network adapter
+        let assignedIp = '';
+        try {
+          const { stdout: ipOut } = await execFileAsync(
+            'powershell.exe',
+            [
+              '-NoProfile',
+              '-NonInteractive',
+              '-ExecutionPolicy',
+              'Bypass',
+              '-Command',
+              `(Get-NetIPAddress -InterfaceAlias '${WIN_VPN_NAME}' -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty IPAddress)`,
+            ],
+            { timeout: 6000 }
+          );
+          assignedIp = ipOut.trim();
+        } catch {}
+
+        realVpnState.status = 'CONNECTED';
+        realVpnState.connectedAt = Date.now();
+        realVpnState.clientIp = assignedIp || 'Assigned by MikroTik';
+        realVpnState.gatewayIp = cleanHost;
+        realVpnState.iface = WIN_VPN_NAME;
+        realVpnState.routes = useSplit ? validCidrs : ['0.0.0.0/0 (Full Tunnel)'];
+        pushVpnLog(
+          'TUN',
+          'INFO',
+          `REAL Windows ${psTunnel} VPN ONLINE! IP: ${realVpnState.clientIp} · MikroTik /ppp active is LIVE.`
+        );
+        return res.json({
+          connected: true,
+          ...realVpnState,
+          uptimeSeconds: 0,
+        });
+      } catch (dialErr: any) {
+        const rawOut = `${dialErr?.stdout || ''}\n${dialErr?.stderr || ''}\n${dialErr?.message || ''}`.trim();
+        const msg = rawOut.split(/\r?\n/).filter(Boolean).slice(0, 3).join(' · ') || 'Windows VPN dial failed.';
+        realVpnState.status = 'ERROR';
+        realVpnState.error = msg;
+        pushVpnLog('CONTROL', 'ERROR', msg);
+        return res.status(502).json({
+          connected: false,
+          status: 'ERROR',
+          error: msg,
+          logs: realVpnState.logs,
+        });
+      }
+    }
+
+    if (cleanProto === 'pptp') {
+      const msg =
+        'PPTP GRE (Protocol 47) is blocked inside cloud Linux containers. Use L2TP/SSTP here OR run the Windows Desktop App (.exe) for native PPTP!';
+      realVpnState.status = 'ERROR';
+      realVpnState.error = msg;
+      pushVpnLog('GRE', 'ERROR', msg);
+      return res.status(400).json({ connected: false, status: 'ERROR', error: msg, logs: realVpnState.logs });
+    }
 
     const daemonPath = path.join(__dirname, 'vpn_tunnel_daemon.py');
     const proc = spawn('python3', ['-u', daemonPath], {
@@ -1636,7 +1817,7 @@ app.get('/api/download-zip', async (_req: Request, res: Response) => {
 
 Complete Android/Flutter app source code with ALL features included:
 - **Multi-Vendor Graphical WebUI (12 Brands):** Huawei, ZTE, BDCOM, VSOL, C-Data, MikroTik, Cisco, Juniper, Palo Alto, Arista, Ruijie, TP-Link (Interface IP, VLAN & Switch L2, Static Route & BGP, OLT ONU Add/Delete/Auto-Find/Optics, Hostname & Save)
-- **Live Telnet, SSH & USB-OTG Console Cable Terminal:** RFC 854 Telnet + SSH + USB-to-Serial RS-232 (FTDI, PL2303, CH340, CP210x @ 9600/115200 bps) with interactive \`? Help\`, \`Tab\` autocomplete, Ctrl+C/Z, and 12-vendor snippets
+- **Resizable Live Telnet, SSH & USB-OTG Console Cable Terminal:** Drag-to-resize terminal viewport + Font Size (A-/A+) + Fullscreen mode + RFC 854 Telnet + SSH + USB-to-Serial RS-232 (FTDI, PL2303, CH340, CP210x @ 9600/115200 bps) with interactive \`? Help\`, \`Tab\` autocomplete, Ctrl+C/Z, and 12-vendor snippets
 - **Personal Command Notepad:** Save multi-line CLI scripts, Pin, Search, Quick Edit & Apply, and 1-Tap Apply Live
 - **User-Space PPTP VPN (Android VpnService):** Full & Split Tunneling
 - **Network Diagnostics:** Ping & TCP Port Scanner
@@ -1657,6 +1838,267 @@ Complete Android/Flutter app source code with ALL features included:
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to generate zip: ' + err.message });
   }
+});
+
+// Full Working Standalone Desktop Application ZIP (Windows / macOS / Linux)
+// Runs directly on the user's PC so local PPTP/L2TP/SSTP, Private LAN Ping/Tracert/Telnet, and Physical COM Port Console Cable work 100% natively.
+app.get('/api/download-desktop-app', async (_req: Request, res: Response) => {
+  try {
+    const zip = new JSZip();
+
+    const addDirToZip = (relDir: string, skipDirs = new Set(['node_modules', '.git'])) => {
+      const absDir = path.join(__dirname, relDir);
+      if (!fs.existsSync(absDir)) return;
+      const entries = fs.readdirSync(absDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (skipDirs.has(entry.name)) continue;
+        const childRel = relDir ? `${relDir}/${entry.name}` : entry.name;
+        const childAbs = path.join(__dirname, childRel);
+        if (entry.isDirectory()) {
+          addDirToZip(childRel, skipDirs);
+        } else if (entry.isFile()) {
+          zip.file(childRel, fs.readFileSync(childAbs));
+        }
+      }
+    };
+
+    const rootFiles = [
+      'package.json',
+      'tsconfig.json',
+      'vite.config.ts',
+      'index.html',
+      'metadata.json',
+      'server.ts',
+      'vpn_tunnel_daemon.py',
+    ];
+    for (const rel of rootFiles) {
+      const full = path.join(__dirname, rel);
+      if (fs.existsSync(full)) {
+        zip.file(rel, fs.readFileSync(full));
+      }
+    }
+
+    // Include pre-built dist/ if present + src/ & public/
+    addDirToZip('dist');
+    addDirToZip('src');
+    addDirToZip('public');
+
+    const windowsLauncher = `@echo off
+title Universal WebUI for Network Engineer - Desktop App
+cd /d "%~dp0"
+
+echo ============================================================
+echo   Universal WebUI for Network Engineer (Full Working Mode)
+echo ============================================================
+echo.
+
+where node >nul 2>nul
+if %errorlevel% neq 0 (
+  echo [ERROR] Node.js is not installed on this PC!
+  echo Please install Node.js LTS from https://nodejs.org and double-click this file again.
+  pause
+  exit /b 1
+)
+
+if not exist "node_modules" (
+  echo [1/3] Installing required packages (first run only)...
+  call npm install --no-audit --no-fund
+  if %errorlevel% neq 0 (
+    echo [ERROR] npm install failed. Check internet connection.
+    pause
+    exit /b 1
+  )
+)
+
+echo [2/3] Starting local Network Engineer Engine on http://localhost:3000 ...
+set NODE_ENV=production
+start "Universal-WebUI-Engine" /min cmd /c "npx tsx server.ts"
+
+echo [3/3] Opening Desktop Application Window...
+timeout /t 3 /nobreak >nul
+
+set "EDGE=%ProgramFiles(x86)%\\Microsoft\\Edge\\Application\\msedge.exe"
+set "EDGE64=%ProgramFiles%\\Microsoft\\Edge\\Application\\msedge.exe"
+set "CHROME=%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe"
+set "CHROME86=%ProgramFiles(x86)%\\Google\\Chrome\\Application\\chrome.exe"
+
+if exist "%EDGE%" (
+  start "" "%EDGE%" --app=http://localhost:3000 --window-size=1360,860
+) else if exist "%EDGE64%" (
+  start "" "%EDGE64%" --app=http://localhost:3000 --window-size=1360,860
+) else if exist "%CHROME%" (
+  start "" "%CHROME%" --app=http://localhost:3000 --window-size=1360,860
+) else if exist "%CHROME86%" (
+  start "" "%CHROME86%" --app=http://localhost:3000 --window-size=1360,860
+) else (
+  start "" http://localhost:3000
+)
+
+echo.
+echo App is running at http://localhost:3000
+echo Keep the minimized "Universal-WebUI-Engine" window open while using the app.
+echo.
+`;
+
+    const unixLauncher = `#!/usr/bin/env bash
+set -e
+cd "$(dirname "$0")"
+
+echo "============================================================"
+echo "  Universal WebUI for Network Engineer (Full Working Mode)"
+echo "============================================================"
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "[ERROR] Node.js is not installed. Install Node.js LTS from https://nodejs.org"
+  exit 1
+fi
+
+if [ ! -d "node_modules" ]; then
+  echo "[1/3] Installing dependencies (first launch only)..."
+  npm install --no-audit --no-fund
+fi
+
+echo "[2/3] Starting local engine on http://localhost:3000 ..."
+NODE_ENV=production npx tsx server.ts &
+SERVER_PID=$!
+sleep 3
+
+echo "[3/3] Opening Desktop App Window..."
+if command -v google-chrome >/dev/null 2>&1; then
+  google-chrome --app=http://localhost:3000 --window-size=1360,860 >/dev/null 2>&1 &
+elif command -v chromium >/dev/null 2>&1; then
+  chromium --app=http://localhost:3000 --window-size=1360,860 >/dev/null 2>&1 &
+elif [ "$(uname)" = "Darwin" ]; then
+  open -a "Google Chrome" --args --app=http://localhost:3000 || open http://localhost:3000
+else
+  xdg-open http://localhost:3000 >/dev/null 2>&1 || true
+fi
+
+echo "Running on http://localhost:3000 (Press Ctrl+C to stop)"
+wait $SERVER_PID
+`;
+
+    const desktopReadme = `Universal WebUI for Network Engineer — Full Working Desktop App (Windows / Mac / Linux)
+======================================================================================
+
+কেন এই Desktop App ভার্সনটি ১০০% Full Working Mode-এ কাজ করে?
+- এটি আপনার নিজের কম্পিউটারে লোকালভাবে (http://localhost:3000) চলে।
+- আপনার পিসিতে PPTP / L2TP / SSTP VPN কানেক্ট থাকলে বা সরাসরি অফিস/ISP LAN-এ থাকলে,
+  MikroTik-এ আলাদা লগইন না করেই যেকোনো Private IP (10.x.x.x / 172.16.x.x / 192.168.x.x)-এ
+  সরাসরি Ping, Traceroute, TCP Port Scan, Telnet, Multi-Vendor WebUI কাজ করবে!
+- Physical USB-to-Serial Console Cable (COM Port / FTDI / CH340 / PL2303) সরাসরি কাজ করবে।
+- সব Terminal Box ড্র্যাগ করে ছোট-বড় (S/M/L/Drag/Fullscreen) ও Font Size (A-/A+) করা যাবে।
+
+কিভাবে চালু করবেন (Windows):
+1. এই ZIP ফাইলটি Extract (Unzip) করুন।
+2. পিসিতে Node.js ইনস্টল না থাকলে https://nodejs.org থেকে LTS ভার্সন ইনস্টল করুন।
+3. "Universal-WebUI-Desktop.bat" ফাইলে ডাবল-ক্লিক করুন।
+   (প্রথমবার চালু হতে ৩০-৬০ সেকেন্ড লাগবে; এরপর থেকে ২ সেকেন্ডেই Standalone Desktop App উইন্ডো ওপেন হবে!)
+
+কিভাবে চালু করবেন (macOS / Linux):
+1. টার্মিনালে এই ফোল্ডারে যান এবং চালান:
+   chmod +x start-desktop-app.sh && ./start-desktop-app.sh
+`;
+
+    zip.file('Universal-WebUI-Desktop.bat', windowsLauncher.replace(/\n/g, '\r\n'));
+    zip.file('start-desktop-app.sh', unixLauncher, { unixPermissions: '755' });
+    zip.file('README_DESKTOP.txt', desktopReadme);
+
+    const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="universal_webui_desktop_app.zip"');
+    res.setHeader('Content-Length', buffer.length.toString());
+    res.send(buffer);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to build desktop app package: ' + err.message });
+  }
+});
+
+// Chunked Binary Package Downloader (4 MB chunks — bypasses Cloud Run 32 MB response cap & proxy .exe 403 blocks!)
+const PKG_CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB
+
+function resolvePackageTarget(target: string) {
+  if (target === 'win64') {
+    return {
+      gzPath: path.join(__dirname, 'releases', 'Universal-WebUI-Network-Engineer.exe.gz'),
+      rawPath: path.join(__dirname, 'releases', 'Universal-WebUI-Network-Engineer.exe'),
+      filename: 'Universal-WebUI-Network-Engineer.exe',
+    };
+  }
+  if (target === 'linux64') {
+    return {
+      gzPath: path.join(__dirname, 'releases', 'Universal-WebUI-Network-Engineer-Linux-x64.gz'),
+      rawPath: path.join(__dirname, 'releases', 'Universal-WebUI-Network-Engineer-Linux-x64'),
+      filename: 'Universal-WebUI-Network-Engineer-Linux-x64',
+    };
+  }
+  return null;
+}
+
+app.get('/api/pkg/:target/meta', (req: Request, res: Response) => {
+  const pkg = resolvePackageTarget(req.params.target);
+  if (!pkg || !fs.existsSync(pkg.gzPath)) {
+    return res.status(404).json({ error: 'Package binary is not available.' });
+  }
+  const gzStat = fs.statSync(pkg.gzPath);
+  const rawBytes = fs.existsSync(pkg.rawPath) ? fs.statSync(pkg.rawPath).size : gzStat.size;
+  const totalChunks = Math.ceil(gzStat.size / PKG_CHUNK_SIZE);
+  res.json({
+    target: req.params.target,
+    filename: pkg.filename,
+    encoding: 'gzip',
+    compressedBytes: gzStat.size,
+    rawBytes,
+    chunkSize: PKG_CHUNK_SIZE,
+    totalChunks,
+  });
+});
+
+app.get('/api/pkg/:target/part/:index', (req: Request, res: Response) => {
+  const pkg = resolvePackageTarget(req.params.target);
+  if (!pkg || !fs.existsSync(pkg.gzPath)) {
+    return res.status(404).json({ error: 'Package binary is not available.' });
+  }
+  const idx = parseInt(req.params.index, 10);
+  const gzStat = fs.statSync(pkg.gzPath);
+  const totalChunks = Math.ceil(gzStat.size / PKG_CHUNK_SIZE);
+  if (isNaN(idx) || idx < 0 || idx >= totalChunks) {
+    return res.status(400).json({ error: 'Invalid chunk index.' });
+  }
+  const start = idx * PKG_CHUNK_SIZE;
+  const end = Math.min(start + PKG_CHUNK_SIZE, gzStat.size) - 1;
+  const length = end - start + 1;
+
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Length', String(length));
+  res.setHeader('Cache-Control', 'no-store');
+  fs.createReadStream(pkg.gzPath, { start, end }).pipe(res);
+});
+
+// Direct Ready-to-Run Standalone Windows 64-bit .exe Download (Zero Dependencies!)
+app.get('/api/download-windows-exe', (_req: Request, res: Response) => {
+  const exePath = path.join(__dirname, 'releases', 'Universal-WebUI-Network-Engineer.exe');
+  if (!fs.existsSync(exePath)) {
+    return res.status(404).json({ error: 'Windows executable is not built yet.' });
+  }
+  const stat = fs.statSync(exePath);
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', 'attachment; filename="Universal-WebUI-Network-Engineer.exe"');
+  res.setHeader('Content-Length', stat.size.toString());
+  fs.createReadStream(exePath).pipe(res);
+});
+
+// Direct Ready-to-Run Standalone Linux x64 Executable Download
+app.get('/api/download-linux-bin', (_req: Request, res: Response) => {
+  const binPath = path.join(__dirname, 'releases', 'Universal-WebUI-Network-Engineer-Linux-x64');
+  if (!fs.existsSync(binPath)) {
+    return res.status(404).json({ error: 'Linux executable is not built yet.' });
+  }
+  const stat = fs.statSync(binPath);
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', 'attachment; filename="Universal-WebUI-Network-Engineer-Linux-x64"');
+  res.setHeader('Content-Length', stat.size.toString());
+  fs.createReadStream(binPath).pipe(res);
 });
 
 // Interactive RFC 854 Telnet probe endpoint (strips IAC negotiation for Cisco/Huawei/BDCOM/VSOL/MikroTik/Palo Alto)
@@ -2160,11 +2602,59 @@ app.delete('/api/telnet/sessions/:id', (req: Request, res: Response) => {
   res.json({ closed: true });
 });
 
-async function startServer() {
-  const isDev = process.env.NODE_ENV !== 'production';
+function launchDesktopAppWindow(url: string) {
+  try {
+    if (process.platform === 'win32') {
+      const candidates = [
+        path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Microsoft\\Edge\\Application\\msedge.exe'),
+        path.join(process.env['ProgramFiles'] || 'C:\\Program Files', 'Microsoft\\Edge\\Application\\msedge.exe'),
+        path.join(process.env['ProgramFiles'] || 'C:\\Program Files', 'Google\\Chrome\\Application\\chrome.exe'),
+        path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Google\\Chrome\\Application\\chrome.exe'),
+      ];
+      const browser = candidates.find((p) => fs.existsSync(p));
+      if (browser) {
+        const child = spawn(browser, [`--app=${url}`, '--window-size=1380,880'], {
+          detached: true,
+          stdio: 'ignore',
+        });
+        child.unref();
+      } else {
+        const child = spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' });
+        child.unref();
+      }
+    } else if (process.platform === 'darwin') {
+      const child = spawn('open', [url], { detached: true, stdio: 'ignore' });
+      child.unref();
+    } else if (process.env.DISPLAY) {
+      const child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' });
+      child.unref();
+    }
+  } catch {}
+}
 
-  if (isDev) {
-    const { createServer: createViteServer } = await import('vite');
+async function startServer() {
+  const isStandalone = process.env.STANDALONE_DESKTOP === 'true';
+  const embeddedAssets = (globalThis as any).__EMBEDDED_DIST_ASSETS__ as
+    | Record<string, { mime: string; b64: string }>
+    | undefined;
+  const isDev = !isStandalone && process.env.NODE_ENV !== 'production';
+
+  if (embeddedAssets && Object.keys(embeddedAssets).length > 0) {
+    app.get('*', (req: Request, res: Response) => {
+      const reqPath = req.path === '/' ? '/index.html' : req.path;
+      const asset = embeddedAssets[reqPath] || embeddedAssets['/index.html'];
+      if (!asset) {
+        return res.status(404).send('Not Found');
+      }
+      res.setHeader('Content-Type', asset.mime);
+      if (reqPath.startsWith('/assets/')) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+      res.send(Buffer.from(asset.b64, 'base64'));
+    });
+  } else if (isDev) {
+    const vitePkg = 'vite';
+    const { createServer: createViteServer } = await import(vitePkg);
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
@@ -2183,9 +2673,29 @@ async function startServer() {
     }
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[PPTP Solution] Server listening on http://0.0.0.0:${PORT}`);
-  });
+  const listenHost = isStandalone ? '127.0.0.1' : '0.0.0.0';
+  const tryListen = (portToTry: number) => {
+    const srv = app.listen(portToTry, listenHost, () => {
+      const url = `http://localhost:${portToTry}`;
+      console.log('==============================================================');
+      console.log('  Universal WebUI for Network Engineer (Full Working Mode)');
+      console.log(`  Running locally at: ${url}`);
+      console.log('  Close this window to exit the application.');
+      console.log('==============================================================');
+      if (isStandalone && process.env.NO_BROWSER_LAUNCH !== 'true') {
+        setTimeout(() => launchDesktopAppWindow(url), 400);
+      }
+    });
+    srv.on('error', (err: any) => {
+      if (isStandalone && err?.code === 'EADDRINUSE' && portToTry < PORT + 20) {
+        tryListen(portToTry + 1);
+      } else {
+        console.error('Server listen error:', err);
+      }
+    });
+  };
+
+  tryListen(PORT);
 }
 
 startServer().catch((err) => {

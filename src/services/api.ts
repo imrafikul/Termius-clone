@@ -90,7 +90,7 @@ export async function fetchRealClientIp(): Promise<{
 export interface RealVpnStatusResponse {
   connected?: boolean;
   status: 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'ERROR';
-  protocol: 'l2tp' | 'sstp' | null;
+  protocol: 'pptp' | 'l2tp' | 'sstp' | null;
   host: string;
   port: number;
   username: string;
@@ -108,8 +108,20 @@ export interface RealVpnStatusResponse {
   logs?: { timestamp: string; component: string; level: string; message: string }[];
 }
 
+export async function fetchSystemRuntime(): Promise<{
+  platform: string;
+  nativePptpSupported: boolean;
+  standalone: boolean;
+}> {
+  try {
+    const res = await fetch('/api/system/runtime');
+    if (res.ok) return res.json();
+  } catch {}
+  return { platform: 'linux', nativePptpSupported: false, standalone: false };
+}
+
 export async function connectRealVpnTunnel(params: {
-  protocol: 'l2tp' | 'sstp';
+  protocol: 'pptp' | 'l2tp' | 'sstp';
   host: string;
   port?: number;
   username: string;

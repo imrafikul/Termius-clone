@@ -20,6 +20,7 @@ import {
   connectRealVpnTunnel,
   disconnectRealVpnTunnel,
   getRealVpnStatus,
+  fetchSystemRuntime,
 } from './services/api';
 
 function AppContent() {
@@ -39,6 +40,7 @@ function AppContent() {
     updateProfile,
     deleteProfile,
     errorMessage,
+    clearError,
   } = useAuth();
 
   const [connectionState, setConnectionState] = useState<ConnectionState>('DISCONNECTED');
@@ -106,17 +108,26 @@ function AppContent() {
     setLogs((prev) => [newEntry, ...prev.slice(0, 80)]);
   };
 
-  // Real L2TPv2 (UDP 1701) & MS-SSTP (TCP 443) VPN Tunnel OR Honest PPTP Probe (ZERO Fake Connected!)
+  const [nativePptpSupported, setNativePptpSupported] = useState(false);
+  const [isStandaloneApp, setIsStandaloneApp] = useState(false);
+
+  useEffect(() => {
+    fetchSystemRuntime().then((rt) => {
+      setNativePptpSupported(Boolean(rt.nativePptpSupported));
+      setIsStandaloneApp(Boolean(rt.standalone));
+    });
+  }, []);
+
+  // Real L2TPv2 / MS-SSTP (Cloud/Linux) & Native PPTP/L2TP/SSTP (Windows Desktop .exe)
   const startConnectionSequence = async (targetProfile?: VpnProfile, overrideProtocol?: VpnProtocol) => {
     const profile = targetProfile || activeProfile;
     if (!profile) return;
 
     const serverHost = profile.server.trim();
-    // Default to L2TP on web if profile has no explicit protocol yet (so user gets real /ppp active tunnel!)
-    const selectedProto: VpnProtocol = overrideProtocol || profile.protocol || 'l2tp';
+    const selectedProto: VpnProtocol = overrideProtocol || profile.protocol || (nativePptpSupported ? 'pptp' : 'l2tp');
 
-    if (isPrivateIp(serverHost)) {
-      const msg = `Cannot reach private LAN IP (${serverHost}) from cloud web server. Enter your MikroTik's PUBLIC IP in the Profile.`;
+    if (!isStandaloneApp && !nativePptpSupported && isPrivateIp(serverHost)) {
+      const msg = `Cannot reach private LAN IP (${serverHost}) from cloud web server. Enter your MikroTik's PUBLIC IP in the Profile, or run the Windows Desktop App (.exe) locally.`;
       setConnectionState('ERROR');
       setConnectionStats((prev) => ({
         ...prev,
@@ -131,11 +142,13 @@ function AppContent() {
       return;
     }
 
-    // 1. REAL L2TP (UDP 1701) or SSTP (TCP 443) VPN TUNNEL — ZERO MikroTik Admin Login needed!
-    if (selectedProto === 'l2tp' || selectedProto === 'sstp') {
-      const defaultPort = selectedProto === 'sstp' ? 443 : 1701;
+    // 1. REAL VPN TUNNEL — L2TP/SSTP everywhere + Native PPTP inside Windows Desktop App (.exe)
+    if (selectedProto === 'l2tp' || selectedProto === 'sstp' || (selectedProto === 'pptp' && nativePptpSupported)) {
+      const defaultPort = selectedProto === 'pptp' ? 1723 : selectedProto === 'sstp' ? 443 : 1701;
       const targetPort =
-        profile.port && profile.port !== 1723
+        selectedProto === 'pptp'
+          ? profile.port || 1723
+          : profile.port && profile.port !== 1723
           ? profile.port
           : defaultPort;
 
@@ -425,8 +438,15 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-white text-black flex flex-col font-sans">
       {errorMessage && (
-        <div className="bg-red-50 border-b border-red-200 text-red-800 px-4 py-2 text-xs text-center font-medium">
-          {errorMessage}
+        <div className="bg-red-50 border-b border-red-200 text-red-900 px-4 py-2 text-xs font-medium flex items-center justify-center gap-3">
+          <span className="text-center">{errorMessage}</span>
+          <button
+            type="button"
+            onClick={clearError}
+            className="px-2 py-0.5 rounded border border-red-300 bg-white hover:bg-red-100 text-red-900 font-bold shrink-0 cursor-pointer"
+          >
+            ✕
+          </button>
         </div>
       )}
 

@@ -81,6 +81,7 @@ interface AuthContextType {
   deleteCommandNote: (id: string) => Promise<void>;
   syncStatus: 'synced' | 'syncing' | 'local' | 'error';
   errorMessage: string | null;
+  clearError: () => void;
   // Admin Methods
   adminUsers: AdminUserRecord[];
   adminLicenses: AdminLicenseItem[];
@@ -558,9 +559,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return;
       }
       console.error('Google Sign-in failed:', msg);
-      setErrorMessage('Google লগইন ব্যর্থ হয়েছে: ' + msg);
+      if (msg.includes('auth/unauthorized-domain')) {
+        const host = typeof window !== 'undefined' ? window.location.hostname : '';
+        setErrorMessage(
+          `Google Login-এর জন্য "${host}" ডোমেইনটি Firebase Console → Authentication → Settings → Authorized domains-এ যোগ করতে হবে। (অথবা Google Login ছাড়াই Local Mode-এ VPN, WebUI, Telnet/SSH ও Ping/Trace সবকিছু ১০০% ব্যবহার করতে পারবেন।)`
+        );
+      } else {
+        setErrorMessage('Google লগইন ব্যর্থ হয়েছে: ' + msg);
+      }
     }
   };
+
+  const clearError = () => setErrorMessage(null);
 
   const logout = async () => {
     try {
@@ -1012,6 +1022,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         deleteCommandNote,
         syncStatus,
         errorMessage,
+        clearError,
         adminUsers,
         adminLicenses,
         loadAdminData,

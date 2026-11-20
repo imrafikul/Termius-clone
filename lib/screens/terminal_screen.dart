@@ -66,6 +66,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
   List<SavedTerminalHost> _savedHosts = [];
   int _activeSessionIndex = 0;
   String _selectedVendor = 'MikroTik';
+  double _terminalFontSize = 12.0;
+  bool _isFullscreen = false;
+  double? _customTerminalHeight;
 
   static const List<String> _vendors = [
     'MikroTik',
@@ -988,6 +991,32 @@ class _TerminalScreenState extends State<TerminalScreen> {
             ),
           ],
           IconButton(
+            icon: const Icon(Icons.text_decrease, color: Colors.white70, size: 19),
+            tooltip: 'Decrease Font Size',
+            onPressed: () => setState(() {
+              _terminalFontSize = (_terminalFontSize - 1).clamp(8.0, 22.0);
+            }),
+          ),
+          IconButton(
+            icon: const Icon(Icons.text_increase, color: Colors.white70, size: 19),
+            tooltip: 'Increase Font Size',
+            onPressed: () => setState(() {
+              _terminalFontSize = (_terminalFontSize + 1).clamp(8.0, 22.0);
+            }),
+          ),
+          IconButton(
+            icon: Icon(
+              _isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+              color: _isFullscreen ? Colors.greenAccent : Colors.white,
+              size: 22,
+            ),
+            tooltip: _isFullscreen ? 'Restore Toolbars' : 'Fullscreen Terminal',
+            onPressed: () => setState(() {
+              _isFullscreen = !_isFullscreen;
+              if (_isFullscreen) _customTerminalHeight = null;
+            }),
+          ),
+          IconButton(
             icon: const Icon(Icons.usb, color: Colors.greenAccent),
             tooltip: 'USB-OTG Console Cable (RS-232 / COM)',
             onPressed: _showUsbConsoleSheet,
@@ -1068,71 +1097,98 @@ class _TerminalScreenState extends State<TerminalScreen> {
               ),
             ),
 
-          // Vendor Selector Strip (Cisco / Huawei / BDCOM / VSOL / MikroTik / Palo Alto)
-          Container(
-            height: 36,
-            color: const Color(0xFF0F172A),
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: _vendors.map((v) {
-                final active = _selectedVendor == v;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 3),
-                  child: InkWell(
-                    onTap: () => setState(() => _selectedVendor = v),
-                    borderRadius: BorderRadius.circular(4),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: active ? Colors.cyanAccent.withOpacity(0.18) : const Color(0xFF1E293B),
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(
-                          color: active ? Colors.cyanAccent : const Color(0xFF334155),
+          // Vendor Selector Strip (hidden in Fullscreen mode for maximum terminal height)
+          if (!_isFullscreen)
+            Container(
+              height: 36,
+              color: const Color(0xFF0F172A),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: _vendors.map((v) {
+                  final active = _selectedVendor == v;
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 3),
+                    child: InkWell(
+                      onTap: () => setState(() => _selectedVendor = v),
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: active ? Colors.cyanAccent.withOpacity(0.18) : const Color(0xFF1E293B),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: active ? Colors.cyanAccent : const Color(0xFF334155),
+                          ),
                         ),
-                      ),
-                      child: Text(
-                        v,
-                        style: TextStyle(
-                          color: active ? Colors.cyanAccent : Colors.white60,
-                          fontSize: 11,
-                          fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                        child: Text(
+                          v,
+                          style: TextStyle(
+                            color: active ? Colors.cyanAccent : Colors.white60,
+                            fontSize: 11,
+                            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                );
-              }).toList(),
+                  );
+                }).toList(),
+              ),
             ),
-          ),
 
-          // Termius Quick Control & Vendor Snippets Bar
-          Container(
-            height: 42,
-            color: const Color(0xFF1E293B),
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: [
-                if (current != null && current.username.isNotEmpty)
+          // Termius Quick Control & Vendor Snippets Bar (hidden in Fullscreen mode)
+          if (!_isFullscreen)
+            Container(
+              height: 42,
+              color: const Color(0xFF1E293B),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  if (current != null && current.username.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                      child: InkWell(
+                        onTap: _sendSavedCredentials,
+                        borderRadius: BorderRadius.circular(4),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.greenAccent.withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: Colors.greenAccent),
+                          ),
+                          alignment: Alignment.center,
+                          child: const Text(
+                            'Send Login',
+                            style: TextStyle(
+                              color: Colors.greenAccent,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 3),
                     child: InkWell(
-                      onTap: _sendSavedCredentials,
+                      onTap: _showNotepadPicker,
                       borderRadius: BorderRadius.circular(4),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.greenAccent.withOpacity(0.18),
+                          color: Colors.amber.withOpacity(0.2),
                           borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: Colors.greenAccent),
+                          border: Border.all(color: Colors.amberAccent),
                         ),
                         alignment: Alignment.center,
                         child: const Text(
-                          'Send Login',
+                          'Notepad',
                           style: TextStyle(
-                            color: Colors.greenAccent,
+                            color: Colors.amberAccent,
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
                             fontFamily: 'monospace',
@@ -1141,63 +1197,80 @@ class _TerminalScreenState extends State<TerminalScreen> {
                       ),
                     ),
                   ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 3),
-                  child: InkWell(
-                    onTap: _showNotepadPicker,
-                    borderRadius: BorderRadius.circular(4),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.amber.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: Colors.amberAccent),
+                  _shortcutButton('? Help', '?'),
+                  _shortcutButton('Tab', '\t'),
+                  _shortcutButton('Ctrl+C', '\x03'),
+                  _shortcutButton('Ctrl+Z', '\x1a'),
+                  _shortcutButton('Space', ' '),
+                  _shortcutButton('Up', '\x1b[A'),
+                  _shortcutButton('Down', '\x1b[B'),
+                  ...(_snippets[_selectedVendor] ?? []).map((snip) {
+                    return _shortcutButton(snip['label']!, snip['cmd']!);
+                  }),
+                  _shortcutButton('Enter', '\r'),
+                ],
+              ),
+            ),
+
+          // Resizable Terminal Viewport (supports custom drag height + S/M/L/Full + dynamic font size)
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final maxH = constraints.maxHeight;
+                final activeH = _customTerminalHeight != null
+                    ? _customTerminalHeight!.clamp(180.0, maxH - 22.0)
+                    : maxH - 22.0;
+                return Column(
+                  children: [
+                    SizedBox(
+                      height: activeH,
+                      width: double.infinity,
+                      child: Container(
+                        color: Colors.black,
+                        padding: const EdgeInsets.all(4),
+                        child: current != null
+                            ? TerminalView(
+                                current.terminal,
+                                backgroundOpacity: 1.0,
+                                textStyle: TerminalStyle(
+                                  fontSize: _terminalFontSize,
+                                  fontFamily: 'monospace',
+                                ),
+                              )
+                            : const Center(
+                                child: Text('No active session', style: TextStyle(color: Colors.white38)),
+                              ),
                       ),
-                      alignment: Alignment.center,
-                      child: const Text(
-                        'Notepad',
-                        style: TextStyle(
-                          color: Colors.amberAccent,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          fontFamily: 'monospace',
+                    ),
+                    // Drag-to-Resize Handle Bar
+                    GestureDetector(
+                      onVerticalDragUpdate: (details) {
+                        setState(() {
+                          final baseH = _customTerminalHeight ?? (maxH - 22.0);
+                          _customTerminalHeight = (baseH + details.delta.dy).clamp(180.0, maxH - 22.0);
+                        });
+                      },
+                      onDoubleTap: () => setState(() => _customTerminalHeight = null),
+                      child: Container(
+                        height: 22,
+                        width: double.infinity,
+                        color: const Color(0xFF1E293B),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.drag_handle, size: 16, color: Colors.white54),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Drag to Resize · ${_terminalFontSize.toInt()}px · Double-tap Full',
+                              style: const TextStyle(color: Colors.white54, fontSize: 10, fontFamily: 'monospace'),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                  ),
-                ),
-                _shortcutButton('? Help', '?'),
-                _shortcutButton('Tab', '\t'),
-                _shortcutButton('Ctrl+C', '\x03'),
-                _shortcutButton('Ctrl+Z', '\x1a'),
-                _shortcutButton('Space', ' '),
-                _shortcutButton('Up', '\x1b[A'),
-                _shortcutButton('Down', '\x1b[B'),
-                ...(_snippets[_selectedVendor] ?? []).map((snip) {
-                  return _shortcutButton(snip['label']!, snip['cmd']!);
-                }),
-                _shortcutButton('Enter', '\r'),
-              ],
-            ),
-          ),
-
-          // Terminal Viewport
-          Expanded(
-            child: Container(
-              color: Colors.black,
-              padding: const EdgeInsets.all(4),
-              child: current != null
-                  ? TerminalView(
-                      current.terminal,
-                      backgroundOpacity: 1.0,
-                      textStyle: const TerminalStyle(
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                      ),
-                    )
-                  : const Center(
-                      child: Text('No active session', style: TextStyle(color: Colors.white38)),
-                    ),
+                  ],
+                );
+              },
             ),
           ),
         ],

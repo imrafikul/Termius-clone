@@ -31,6 +31,9 @@ import {
   FileText,
   Usb,
   Zap,
+  Maximize2,
+  Minimize2,
+  GripHorizontal,
 } from 'lucide-react';
 import { TerminalVendor, VpnProfile } from '../types/vpn';
 import { isPrivateIp } from '../services/api';
@@ -228,6 +231,76 @@ export const DeviceWebUiView: React.FC<DeviceWebUiViewProps> = ({ activeProfile 
 
   const consoleEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Resizable Device WebUI Live Console State
+  const [consoleHeight, setConsoleHeight] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem('uwebui_console_height'));
+      return saved >= 220 && saved <= 900 ? saved : 460;
+    } catch {
+      return 460;
+    }
+  });
+  const [consoleFontSize, setConsoleFontSize] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem('uwebui_console_font'));
+      return saved >= 10 && saved <= 18 ? saved : 12;
+    } catch {
+      return 12;
+    }
+  });
+  const [isConsoleExpanded, setIsConsoleExpanded] = useState(false);
+  const [isResizingConsole, setIsResizingConsole] = useState(false);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('uwebui_console_height', String(consoleHeight));
+    } catch {}
+  }, [consoleHeight]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('uwebui_console_font', String(consoleFontSize));
+    } catch {}
+  }, [consoleFontSize]);
+
+  useEffect(() => {
+    if (!isConsoleExpanded) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsConsoleExpanded(false);
+    };
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [isConsoleExpanded]);
+
+  const startConsoleResize = (startClientY: number) => {
+    if (isConsoleExpanded) return;
+    const initialH = consoleHeight;
+    setIsResizingConsole(true);
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const nextH = Math.max(220, Math.min(900, Math.round(initialH + (ev.clientY - startClientY))));
+      setConsoleHeight(nextH);
+    };
+    const onTouchMove = (ev: TouchEvent) => {
+      if (ev.touches.length > 0) {
+        const nextH = Math.max(220, Math.min(900, Math.round(initialH + (ev.touches[0].clientY - startClientY))));
+        setConsoleHeight(nextH);
+      }
+    };
+    const stopResize = () => {
+      setIsResizingConsole(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', stopResize);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', stopResize);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', stopResize);
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('touchend', stopResize);
+  };
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -2046,19 +2119,120 @@ export const DeviceWebUiView: React.FC<DeviceWebUiViewProps> = ({ activeProfile 
               >
                 clear
               </button>
+              <div className="flex items-center gap-1 ml-auto shrink-0">
+                {!isConsoleExpanded && (
+                  <div className="flex items-center rounded border border-slate-300 bg-white overflow-hidden">
+                    {[
+                      { label: 'S', h: 260 },
+                      { label: 'M', h: 460 },
+                      { label: 'L', h: 700 },
+                    ].map((p) => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        onClick={() => setConsoleHeight(p.h)}
+                        className={`px-1.5 py-0.5 text-[10px] font-bold cursor-pointer ${
+                          Math.abs(consoleHeight - p.h) < 35
+                            ? 'bg-black text-white'
+                            : 'text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center rounded border border-slate-300 bg-white overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setConsoleFontSize((f) => Math.max(10, f - 1))}
+                    className="px-1.5 py-0.5 text-[10px] font-bold text-black hover:bg-slate-100 cursor-pointer"
+                    title="Smaller font"
+                  >
+                    A-
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConsoleFontSize((f) => Math.min(18, f + 1))}
+                    className="px-1.5 py-0.5 text-[10px] font-bold text-black hover:bg-slate-100 border-l border-slate-200 cursor-pointer"
+                    title="Larger font"
+                  >
+                    A+
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsConsoleExpanded((v) => !v)}
+                  title={isConsoleExpanded ? 'Restore console size (Esc)' : 'Maximize console fullscreen'}
+                  className={`p-1 rounded border cursor-pointer ${
+                    isConsoleExpanded
+                      ? 'bg-black text-white border-black'
+                      : 'bg-white text-black border-slate-300 hover:border-black'
+                  }`}
+                >
+                  {isConsoleExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                </button>
+              </div>
             </div>
 
-            {/* Direct Inline Live Console Output (Type directly inside console box) */}
+            {isConsoleExpanded && (
+              <div
+                className="fixed inset-0 z-40 bg-black/45 backdrop-blur-xs"
+                onClick={() => setIsConsoleExpanded(false)}
+              />
+            )}
+
+            {/* Direct Inline Live Console Output (Resizable + Fullscreen) */}
             <div
-              className={`relative bg-white font-mono text-xs h-[460px] flex flex-col text-black ${
-                isConsoleFocused ? 'ring-1 ring-inset ring-black' : ''
-              }`}
+              style={isConsoleExpanded ? undefined : { height: `${consoleHeight}px` }}
+              className={`${
+                isConsoleExpanded
+                  ? 'fixed inset-2 sm:inset-5 z-50 border-2 border-black rounded-xl shadow-2xl'
+                  : 'relative'
+              } bg-white font-mono flex flex-col text-black ${
+                isConsoleFocused && !isConsoleExpanded ? 'ring-1 ring-inset ring-black' : ''
+              } ${isResizingConsole ? 'select-none' : ''}`}
               onClick={() => {
                 if (!window.getSelection()?.toString()) {
                   inputRef.current?.focus();
                 }
               }}
             >
+              {isConsoleExpanded && (
+                <div
+                  className="px-3 py-1.5 border-b border-slate-200 bg-slate-50 rounded-t-[10px] flex items-center justify-between gap-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <span className="text-xs font-bold text-black">
+                    {activeBrand} Live Console ({telnetHost}:{telnetPort})
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setConsoleFontSize((f) => Math.max(10, f - 1))}
+                      className="px-2 py-0.5 rounded bg-white border border-slate-300 text-[10px] font-bold cursor-pointer"
+                    >
+                      A-
+                    </button>
+                    <span className="text-[10px] font-mono text-slate-600">{consoleFontSize}px</span>
+                    <button
+                      type="button"
+                      onClick={() => setConsoleFontSize((f) => Math.min(18, f + 1))}
+                      className="px-2 py-0.5 rounded bg-white border border-slate-300 text-[10px] font-bold cursor-pointer"
+                    >
+                      A+
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsConsoleExpanded(false)}
+                      className="px-2 py-0.5 rounded bg-black text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Minimize2 className="w-3 h-3" />
+                      <span>Restore</span>
+                    </button>
+                  </div>
+                </div>
+              )}
               <input
                 ref={inputRef}
                 type="text"
@@ -2117,7 +2291,10 @@ export const DeviceWebUiView: React.FC<DeviceWebUiViewProps> = ({ activeProfile 
                 className="opacity-0 w-px h-px absolute bottom-2 left-2 pointer-events-none"
               />
 
-              <div className="flex-1 overflow-y-auto p-3 cursor-text">
+              <div
+                style={{ fontSize: `${consoleFontSize}px` }}
+                className="flex-1 overflow-y-auto p-3 cursor-text"
+              >
                 <div className="space-y-0.5">
                   {(() => {
                     const hasLiveTail = isLiveBridgeConnected && consoleLines.length > 0;
@@ -2195,6 +2372,30 @@ export const DeviceWebUiView: React.FC<DeviceWebUiViewProps> = ({ activeProfile 
                   )}
                 </div>
               </div>
+
+              {!isConsoleExpanded && (
+                <div
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    startConsoleResize(e.clientY);
+                  }}
+                  onTouchStart={(e) => {
+                    e.stopPropagation();
+                    if (e.touches.length > 0) startConsoleResize(e.touches[0].clientY);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  title="Drag up or down to resize console box"
+                  className={`h-5 border-t border-slate-200 flex items-center justify-center gap-1.5 cursor-ns-resize select-none transition-colors ${
+                    isResizingConsole ? 'bg-slate-200 text-black' : 'bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-black'
+                  }`}
+                >
+                  <GripHorizontal className="w-4 h-3.5" />
+                  <span className="text-[10px] font-sans font-medium">
+                    Drag to resize ({consoleHeight}px)
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}

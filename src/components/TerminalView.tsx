@@ -26,6 +26,9 @@ import {
   FileText,
   Usb,
   Zap,
+  Maximize2,
+  Minimize2,
+  GripHorizontal,
 } from 'lucide-react';
 import { VpnProfile, SavedTerminalSession, TerminalVendor } from '../types/vpn';
 import { generateMikrotikScript, isPrivateIp } from '../services/api';
@@ -207,6 +210,76 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   const currentSession = sessions.find((s) => s.id === activeSessionId) || sessions[0];
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Resizable Terminal Box State (Drag height, S/M/L presets, Font size A-/A+, Fullscreen)
+  const [termHeight, setTermHeight] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem('uwebui_term_height'));
+      return saved >= 220 && saved <= 960 ? saved : 490;
+    } catch {
+      return 490;
+    }
+  });
+  const [termFontSize, setTermFontSize] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem('uwebui_term_font'));
+      return saved >= 10 && saved <= 20 ? saved : 12;
+    } catch {
+      return 12;
+    }
+  });
+  const [isTermExpanded, setIsTermExpanded] = useState(false);
+  const [isResizingTerm, setIsResizingTerm] = useState(false);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('uwebui_term_height', String(termHeight));
+    } catch {}
+  }, [termHeight]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('uwebui_term_font', String(termFontSize));
+    } catch {}
+  }, [termFontSize]);
+
+  useEffect(() => {
+    if (!isTermExpanded) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsTermExpanded(false);
+    };
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [isTermExpanded]);
+
+  const startTermResize = (startClientY: number) => {
+    if (isTermExpanded) return;
+    const initialH = termHeight;
+    setIsResizingTerm(true);
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const nextH = Math.max(220, Math.min(960, Math.round(initialH + (ev.clientY - startClientY))));
+      setTermHeight(nextH);
+    };
+    const onTouchMove = (ev: TouchEvent) => {
+      if (ev.touches.length > 0) {
+        const nextH = Math.max(220, Math.min(960, Math.round(initialH + (ev.touches[0].clientY - startClientY))));
+        setTermHeight(nextH);
+      }
+    };
+    const stopResize = () => {
+      setIsResizingTerm(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', stopResize);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', stopResize);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', stopResize);
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('touchend', stopResize);
+  };
 
   useEffect(() => {
     const models = DEVICE_COMMAND_CATALOG[snippetCategory] || [];
@@ -2438,11 +2511,24 @@ end`,
         </div>
       )}
 
-      {/* Direct Inline Terminal Viewport (Type directly inside terminal canvas — PuTTY / Termius Mode) */}
+      {/* Fullscreen Backdrop when Terminal is Maximized */}
+      {isTermExpanded && (
+        <div
+          className="fixed inset-0 z-40 bg-black/45 backdrop-blur-xs"
+          onClick={() => setIsTermExpanded(false)}
+        />
+      )}
+
+      {/* Direct Inline Terminal Viewport (Resizable: Drag Handle + S/M/L + A-/A+ + Fullscreen) */}
       <div
-        className={`relative bg-white border-2 rounded-xl font-mono text-xs h-[490px] flex flex-col text-black transition-colors ${
+        style={isTermExpanded ? undefined : { height: `${termHeight}px` }}
+        className={`${
+          isTermExpanded
+            ? 'fixed inset-2 sm:inset-5 z-50 shadow-2xl'
+            : 'relative'
+        } bg-white border-2 rounded-xl font-mono flex flex-col text-black transition-colors ${
           isTerminalFocused ? 'border-black' : 'border-slate-300'
-        }`}
+        } ${isResizingTerm ? 'select-none ring-2 ring-black/20' : ''}`}
         onClick={() => {
           // Keep text copy selection working; otherwise focus inline terminal keyboard immediately
           if (!window.getSelection()?.toString()) {
@@ -2450,6 +2536,93 @@ end`,
           }
         }}
       >
+        {/* Top Terminal Size / Font / Fullscreen Utility Bar */}
+        <div
+          className="px-3 py-1.5 border-b border-slate-200 bg-slate-50 rounded-t-[10px] flex items-center justify-between gap-2 flex-wrap"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                isCurrentLive ? 'bg-emerald-600' : 'bg-slate-400'
+              }`}
+            />
+            <span className="text-[11px] font-mono font-bold text-black truncate">
+              {currentSession?.name || 'Terminal'} ({currentSession?.host}:{currentSession?.port})
+            </span>
+            {!isTermExpanded && (
+              <span className="hidden sm:inline text-[10px] font-mono text-slate-500">
+                {termHeight}px
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Height Presets: S / M / L */}
+            {!isTermExpanded && (
+              <div className="flex items-center rounded border border-slate-300 bg-white overflow-hidden">
+                {[
+                  { label: 'S', h: 280, title: 'Small Terminal (280px)' },
+                  { label: 'M', h: 490, title: 'Medium Terminal (490px)' },
+                  { label: 'L', h: 720, title: 'Large Terminal (720px)' },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    title={preset.title}
+                    onClick={() => setTermHeight(preset.h)}
+                    className={`px-2 py-0.5 text-[10px] font-bold cursor-pointer transition-colors ${
+                      Math.abs(termHeight - preset.h) < 35
+                        ? 'bg-black text-white'
+                        : 'text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Font Size Controls: A- / A+ */}
+            <div className="flex items-center rounded border border-slate-300 bg-white overflow-hidden">
+              <button
+                type="button"
+                title="Decrease terminal font size"
+                onClick={() => setTermFontSize((f) => Math.max(10, f - 1))}
+                className="px-1.5 py-0.5 text-[10px] font-bold text-black hover:bg-slate-100 cursor-pointer"
+              >
+                A-
+              </button>
+              <span className="px-1.5 py-0.5 text-[10px] font-mono text-slate-600 border-x border-slate-200">
+                {termFontSize}px
+              </span>
+              <button
+                type="button"
+                title="Increase terminal font size"
+                onClick={() => setTermFontSize((f) => Math.min(20, f + 1))}
+                className="px-1.5 py-0.5 text-[10px] font-bold text-black hover:bg-slate-100 cursor-pointer"
+              >
+                A+
+              </button>
+            </div>
+
+            {/* Fullscreen Maximize / Restore Toggle */}
+            <button
+              type="button"
+              onClick={() => setIsTermExpanded((v) => !v)}
+              title={isTermExpanded ? 'Restore terminal size (Esc)' : 'Maximize terminal fullscreen'}
+              className={`px-2 py-0.5 rounded border text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+                isTermExpanded
+                  ? 'bg-black text-white border-black'
+                  : 'bg-white text-black border-slate-300 hover:border-black'
+              }`}
+            >
+              {isTermExpanded ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
+              <span className="hidden sm:inline">{isTermExpanded ? 'Restore' : 'Fullscreen'}</span>
+            </button>
+          </div>
+        </div>
+
         {/* Invisible Keyboard Capture Input (Desktop & Mobile Soft Keyboard) */}
         <input
           ref={inputRef}
@@ -2470,7 +2643,10 @@ end`,
         />
 
         {/* Scrollable Direct Terminal Output + Inline Cursor */}
-        <div className="flex-1 overflow-y-auto p-4 cursor-text">
+        <div
+          style={{ fontSize: `${termFontSize}px` }}
+          className="flex-1 overflow-y-auto p-4 cursor-text"
+        >
           <div className="space-y-0.5">
             {(() => {
               const allLines = currentSession?.lines || [];
@@ -2605,6 +2781,31 @@ end`,
             </button>
           </div>
         </div>
+
+        {/* Interactive Drag-to-Resize Bottom Handle (Mouse & Touch) */}
+        {!isTermExpanded && (
+          <div
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              startTermResize(e.clientY);
+            }}
+            onTouchStart={(e) => {
+              e.stopPropagation();
+              if (e.touches.length > 0) startTermResize(e.touches[0].clientY);
+            }}
+            onClick={(e) => e.stopPropagation()}
+            title="Drag up or down to resize terminal box"
+            className={`h-5 border-t border-slate-200 rounded-b-[10px] flex items-center justify-center gap-1.5 cursor-ns-resize select-none transition-colors ${
+              isResizingTerm ? 'bg-slate-200 text-black' : 'bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-black'
+            }`}
+          >
+            <GripHorizontal className="w-4 h-3.5" />
+            <span className="text-[10px] font-sans font-medium">
+              Drag to resize ({termHeight}px)
+            </span>
+          </div>
+        )}
       </div>
 
       {/* New / Edit Saved Host Session Modal */}
