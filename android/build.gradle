@@ -10,6 +10,17 @@ subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 }
 subprojects {
+    afterEvaluate { proj ->
+        if (proj.plugins.hasPlugin("com.android.library") || proj.plugins.hasPlugin("com.android.application")) {
+            proj.android {
+                if (namespace == null) {
+                    namespace = (proj.group && proj.group.toString().trim()) ? proj.group.toString() : "com.plugin.${proj.name.replace('-', '_')}"
+                }
+            }
+        }
+    }
+}
+subprojects {
     project.evaluationDependsOn(':app')
 }
 

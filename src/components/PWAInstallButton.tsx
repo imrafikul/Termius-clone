@@ -12,8 +12,11 @@ import {
   Monitor,
   Loader2,
   AlertTriangle,
+  ExternalLink,
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+
+const GITHUB_RELEASES_URL = 'https://github.com/imrafikul/Termius-clone/releases/latest';
 
 interface Props {
   variant?: 'header' | 'banner' | 'card';
@@ -73,6 +76,37 @@ export const PWAInstallButton: React.FC<Props> = ({ variant = 'header', classNam
         credentials: 'include',
         signal: controller.signal,
       });
+      if (metaResp.status === 404) {
+        // Standalone binaries are hosted externally on GitHub Releases; download lightweight ready-to-run Desktop App package instead
+        setDlState({
+          active: true,
+          label: 'Desktop App Package (.zip)',
+          percent: 45,
+          downloadedMB: '...',
+          totalMB: '...',
+          stage: 'downloading',
+        });
+        const zipResp = await fetch('/api/download-desktop-app', {
+          credentials: 'include',
+          signal: controller.signal,
+        });
+        if (!zipResp.ok) {
+          throw new Error(`Desktop package returned HTTP ${zipResp.status}`);
+        }
+        const zipBlob = await zipResp.blob();
+        const mb = (zipBlob.size / (1024 * 1024)).toFixed(2);
+        triggerBlobSave(zipBlob, 'universal_webui_desktop_app.zip');
+        setDlState({
+          active: false,
+          label: 'Desktop App Package (.zip)',
+          percent: 100,
+          downloadedMB: mb,
+          totalMB: mb,
+          stage: 'done',
+        });
+        setTimeout(() => setDlState(null), 5000);
+        return;
+      }
       if (!metaResp.ok) {
         throw new Error(`Server returned HTTP ${metaResp.status}`);
       }
@@ -296,11 +330,11 @@ export const PWAInstallButton: React.FC<Props> = ({ variant = 'header', classNam
                   Download Universal WebUI for Network Engineer — Ready-to-Use App
                 </h4>
                 <span className="text-[11px] font-mono text-emerald-700 font-semibold">
-                  · Direct .exe (No Setup · 55 MB Download)
+                  · Lightweight Desktop App + Standalone Releases
                 </span>
               </div>
               <p className="text-xs text-slate-700 mt-0.5">
-                সরাসরি এখান থেকে Windows `.exe` ডাউনলোড করে ডাবল-ক্লিক করলেই চলবে — কোনো Node.js বা সেটআপ লাগবে না! আসল PPTP/L2TP/SSTP, Private LAN Ping/Tracert/Telnet ও USB Console Cable ১০০% ওয়ার্কিং।
+                ডেক্সটপ অ্যাপ প্যাকেজ ডাউনলোড করে চালালে আসল PPTP/L2TP/SSTP, Private LAN Ping/Tracert/Telnet ও USB Console Cable ১০০% ওয়ার্কিং! স্ট্যান্ডঅ্যালোন Windows .exe / Linux / Android APK সরাসরি GitHub Releases থেকেও ডাউনলোড করা যাবে।
               </p>
             </div>
           </div>
@@ -311,17 +345,17 @@ export const PWAInstallButton: React.FC<Props> = ({ variant = 'header', classNam
               disabled={dlState?.active}
               onClick={() => startChunkedBinaryDownload('win64')}
               className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg bg-black hover:bg-slate-800 disabled:opacity-60 text-white font-semibold text-xs transition-all active:scale-95 cursor-pointer whitespace-nowrap"
-              title="Download Ready-to-Use Standalone Windows 64-bit .exe (No Node.js Required)"
+              title="Download Ready-to-Use Desktop App (Windows / Mac / Linux)"
             >
-              {dlState?.active && dlState.label.includes('Windows') ? (
+              {dlState?.active && (dlState.label.includes('Windows') || dlState.label.includes('Desktop')) ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Monitor className="w-4 h-4" />
               )}
               <span>
-                {dlState?.active && dlState.label.includes('Windows')
+                {dlState?.active && (dlState.label.includes('Windows') || dlState.label.includes('Desktop'))
                   ? `Downloading ${dlState.percent}%`
-                  : 'Download Windows App (.exe)'}
+                  : 'Download Desktop App'}
               </span>
             </button>
             {!isInstalled ? (
@@ -456,23 +490,24 @@ export const PWAInstallButton: React.FC<Props> = ({ variant = 'header', classNam
           >
             <Monitor className="w-4 h-4 text-black shrink-0" />
             <div>
-              <div className="font-bold text-black">Windows App (.exe) — Ready to Run</div>
-              <div className="text-[11px] text-slate-600">55 MB ডাউনলোড · ডাবল-ক্লিক করলেই চলবে</div>
+              <div className="font-bold text-black">Desktop App — Ready to Run</div>
+              <div className="text-[11px] text-slate-600">Windows / Mac / Linux · 1-ক্লিক লঞ্চার</div>
             </div>
           </button>
 
-          <button
-            type="button"
-            disabled={dlState?.active}
-            onClick={() => startChunkedBinaryDownload('linux64')}
+          <a
+            href={GITHUB_RELEASES_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setShowMenu(false)}
             className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 flex items-center gap-2.5 text-black cursor-pointer"
           >
-            <Monitor className="w-4 h-4 text-blue-700 shrink-0" />
+            <ExternalLink className="w-4 h-4 text-blue-700 shrink-0" />
             <div>
-              <div className="font-semibold text-black">Linux x64 Binary — Ready to Run</div>
-              <div className="text-[11px] text-slate-600">Standalone Linux executable (No Node.js)</div>
+              <div className="font-semibold text-black">Standalone .exe / Linux / APK</div>
+              <div className="text-[11px] text-slate-600">GitHub Releases থেকে সরাসরি ডাউনলোড</div>
             </div>
-          </button>
+          </a>
 
           <button
             type="button"

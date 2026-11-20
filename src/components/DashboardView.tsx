@@ -389,70 +389,91 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span>Zero MikroTik Admin Login Needed</span>
               </div>
               <h2 className="text-2xl font-bold text-black tracking-tight flex items-center gap-2">
-                <span>{activeProfile ? activeProfile.name : 'Select a Profile'}</span>
+                <span>
+                  {!user
+                    ? 'Google Login Required'
+                    : activeProfile
+                    ? activeProfile.name
+                    : 'No Saved PPTP Profile Yet'}
+                </span>
               </h2>
               <p className="text-xs text-slate-600 mt-1 font-mono">
-                Server: {activeProfile?.server || '—'} · Protocol: {activeProtocol.toUpperCase()} · PPP User: {activeProfile?.username || '—'}
+                {!user
+                  ? 'লগইন ছাড়া কোনো অ্যাকাউন্টের সেভ করা PPTP প্রোফাইল দেখা বা কানেক্ট করা যাবে না।'
+                  : `Server: ${activeProfile?.server || '—'} · Protocol: ${activeProtocol.toUpperCase()} · PPP User: ${activeProfile?.username || '—'}`}
               </p>
             </div>
 
             {/* Profile Dropdown & Action Buttons */}
-            <div className="flex flex-wrap items-center gap-2">
+            {!user ? (
               <button
-                onClick={onOpenAddProfile}
-                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-black border border-slate-300 rounded-lg text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer"
+                type="button"
+                onClick={loginWithGoogle}
+                className="px-4 py-2 rounded-lg bg-black hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-2 cursor-pointer shrink-0"
               >
-                <Plus className="w-4 h-4" />
-                <span>+ Add Profile</span>
+                <Lock className="w-3.5 h-3.5" />
+                <span>Google Login to Access PPTP</span>
               </button>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={onOpenAddProfile}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-black border border-slate-300 rounded-lg text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Add Profile</span>
+                </button>
 
-              <select
-                value={activeProfile?.id || ''}
-                onChange={(e) => setActiveProfileId(e.target.value)}
-                disabled={isVpnConnected || isGatewayReady || isPending}
-                className="bg-white border border-slate-300 text-xs text-black rounded-lg px-3 py-2 font-mono focus:outline-none focus:border-black cursor-pointer"
-              >
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                onClick={onToggleConnect}
-                disabled={isPending || !activeProfile}
-                className={`px-5 py-2 rounded-lg text-xs font-bold transition-all duration-150 flex items-center gap-2 cursor-pointer ${
-                  isVpnConnected || isGatewayReady
-                    ? 'bg-red-600 text-white hover:bg-red-700'
-                    : isPending
-                    ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                    : 'bg-black text-white hover:bg-slate-800'
-                }`}
-              >
-                {isVpnConnected ? (
-                  <>
-                    <Square className="w-3.5 h-3.5 fill-current" />
-                    <span>Disconnect VPN</span>
-                  </>
-                ) : isGatewayReady ? (
-                  <>
-                    <Square className="w-3.5 h-3.5 fill-current" />
-                    <span>Stop Jump-GW</span>
-                  </>
-                ) : isPending ? (
-                  <>
-                    <Clock className="w-3.5 h-3.5 animate-spin" />
-                    <span>Connecting...</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>{`Connect ${activeProtocol.toUpperCase()} VPN`}</span>
-                  </>
+                {profiles.length > 0 && (
+                  <select
+                    value={activeProfile?.id || ''}
+                    onChange={(e) => setActiveProfileId(e.target.value)}
+                    disabled={isVpnConnected || isGatewayReady || isPending}
+                    className="bg-white border border-slate-300 text-xs text-black rounded-lg px-3 py-2 font-mono focus:outline-none focus:border-black cursor-pointer"
+                  >
+                    {profiles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
                 )}
-              </button>
-            </div>
+
+                <button
+                  onClick={onToggleConnect}
+                  disabled={isPending || !activeProfile}
+                  className={`px-5 py-2 rounded-lg text-xs font-bold transition-all duration-150 flex items-center gap-2 cursor-pointer disabled:opacity-50 ${
+                    isVpnConnected || isGatewayReady
+                      ? 'bg-red-600 text-white hover:bg-red-700'
+                      : isPending
+                      ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                      : 'bg-black text-white hover:bg-slate-800'
+                  }`}
+                >
+                  {isVpnConnected ? (
+                    <>
+                      <Square className="w-3.5 h-3.5 fill-current" />
+                      <span>Disconnect VPN</span>
+                    </>
+                  ) : isGatewayReady ? (
+                    <>
+                      <Square className="w-3.5 h-3.5 fill-current" />
+                      <span>Stop Jump-GW</span>
+                    </>
+                  ) : isPending ? (
+                    <>
+                      <Clock className="w-3.5 h-3.5 animate-spin" />
+                      <span>Connecting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>{`Connect ${activeProtocol.toUpperCase()} VPN`}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* 1-Click VPN Protocol Selector (Real PPTP RFC 2637 / L2TPv2 / MS-SSTP — No MikroTik Admin Login Needed!) */}

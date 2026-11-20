@@ -21,30 +21,37 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-          cache: 'gradle'
+
+      - name: Set up Gradle 8.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.5'
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.x'
+          flutter-version: '3.24.5'
           channel: 'stable'
           cache: true
 
-      - name: Setup Android Build Scaffolding & Gradle Wrapper
+      - name: Bootstrap Gradle 8.5 Wrapper & Android Properties
         run: |
+          set -euo pipefail
           mkdir -p android/gradle/wrapper
           echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
-          echo "flutter.versionCode=1" >> android/local.properties
-          echo "flutter.versionName=1.0.0" >> android/local.properties
-          chmod +x android/gradlew 2>/dev/null || true
-          cd android
-          if command -v gradle >/dev/null 2>&1; then
-            gradle wrapper --gradle-version 8.5 || true
-          fi
-          chmod +x gradlew 2>/dev/null || true
-          cd ..
+          echo "flutter.versionCode=2" >> android/local.properties
+          echo "flutter.versionName=2.0.0" >> android/local.properties
 
-      - name: Get Dependencies
+          # Generate gradle-wrapper.jar in an isolated temp dir so android/settings.gradle never interferes
+          rm -rf /tmp/gw_init
+          mkdir -p /tmp/gw_init
+          touch /tmp/gw_init/settings.gradle
+          gradle -p /tmp/gw_init wrapper --gradle-version 8.5 --distribution-type all
+          cp /tmp/gw_init/gradle/wrapper/gradle-wrapper.jar android/gradle/wrapper/gradle-wrapper.jar
+          cp /tmp/gw_init/gradlew android/gradlew
+          chmod +x android/gradlew
+
+      - name: Get Flutter Dependencies
         run: flutter pub get
 
       - name: Build Universal Release APK
@@ -54,7 +61,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: universal-webui-network-engineer-apk
-          path: build/app/outputs/flutter-apk/*.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
 
       - name: Create or Update GitHub Release
@@ -63,12 +70,52 @@ jobs:
         continue-on-error: true
         with:
           tag_name: latest
-          name: "Universal WebUI for Network Engineer — Latest Release APK"
+          name: "Universal WebUI for Network Engineer — Latest Releases"
           body: |
-            ### Universal WebUI for Network Engineer (Android APK — Ready To Install)
-            - **Universal APK:** `app-release.apk`
-            - **All Features Included:** 12-Vendor OLT/Router/Switch WebUI, Live Telnet/SSH with `? Help` & `Tab`, Personal Command Notepad with 1-Tap Apply, Android VpnService PPTP Split/Full Tunnel, and Ping/Port Diagnostics.
-          files: build/app/outputs/flutter-apk/*.apk
+            ### Universal WebUI for Network Engineer — Ready-to-Install Releases
+            - **Android Universal APK:** `app-release.apk`
+            - **Windows 64-bit Standalone App:** `Universal-WebUI-Network-Engineer.exe`
+            - **Linux x64 Standalone App:** `Universal-WebUI-Network-Engineer-Linux-x64`
+            - **All Features Included:** 12-Vendor OLT/Router/Switch WebUI, Live Telnet/SSH with `? Help` & `Tab`, Personal Command Notepad with 1-Tap Apply, Native PPTP/L2TP/SSTP VPN, and Ping/Port Diagnostics.
+          files: build/app/outputs/flutter-apk/app-release.apk
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install Dependencies & Build Web Bundle
+        run: |
+          npm ci
+          npm run build
+
+      - name: Compile Standalone Windows & Linux Binaries
+        run: node scripts/build-standalone.mjs
+
+      - name: Upload Desktop Executables to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        continue-on-error: true
+        with:
+          tag_name: latest
+          name: "Universal WebUI for Network Engineer — Latest Releases"
+          files: |
+            releases/Universal-WebUI-Network-Engineer.exe
+            releases/Universal-WebUI-Network-Engineer-Linux-x64
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

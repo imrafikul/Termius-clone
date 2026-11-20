@@ -28,7 +28,7 @@ service cloud.firestore {
 
     function isValidProfile(data) {
       return data.keys().hasAll(['id', 'userId', 'ispName', 'host', 'username', 'password', 'targetSubnet', 'routerIp']) &&
-        data.id is string && data.id.size() <= 128 &&
+        data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
         data.userId is string && (data.userId == request.auth.uid || isAdmin()) &&
         data.ispName is string && data.ispName.size() <= 100 &&
         data.host is string && data.host.size() <= 255 &&
@@ -36,6 +36,8 @@ service cloud.firestore {
         data.password is string && data.password.size() <= 100 &&
         data.targetSubnet is string && data.targetSubnet.size() <= 50 &&
         data.routerIp is string && data.routerIp.size() <= 50 &&
+        (!('protocol' in data) || (data.protocol is string && (data.protocol == 'pptp' || data.protocol == 'l2tp' || data.protocol == 'sstp'))) &&
+        (!('port' in data) || (data.port is number && data.port >= 1 && data.port <= 65535)) &&
         (!('routingMode' in data) || (data.routingMode is string && (data.routingMode == 'full' || data.routingMode == 'split'))) &&
         (!('sshPort' in data) || data.sshPort is number) &&
         (!('winboxPort' in data) || data.winboxPort is number);

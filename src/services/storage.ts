@@ -176,78 +176,47 @@ export const DEFAULT_PROFILES: VpnProfile[] = [
   },
 ];
 
-export function getStoredProfiles(): VpnProfile[] {
+export function clearLegacySharedStorage(): void {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_PROFILES);
-    if (!raw) {
-      saveStoredProfiles(DEFAULT_PROFILES);
-      return DEFAULT_PROFILES;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_PROFILES;
-  } catch (err) {
-    return DEFAULT_PROFILES;
-  }
+    localStorage.removeItem(STORAGE_KEY_PROFILES);
+    localStorage.removeItem(STORAGE_KEY_ACTIVE);
+    localStorage.removeItem(STORAGE_KEY_TERMINAL_SESSIONS);
+    localStorage.removeItem(STORAGE_KEY_COMMAND_NOTES);
+    // Also purge any legacy un-scoped keys if present
+    localStorage.removeItem('netroute_pptp_profiles');
+    localStorage.removeItem('netroute_active_profile');
+  } catch (ignored) {}
 }
 
-export function saveStoredProfiles(profiles: VpnProfile[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(profiles));
-  } catch (ignored) {}
+export function getStoredProfiles(): VpnProfile[] {
+  return [];
+}
+
+export function saveStoredProfiles(_profiles: VpnProfile[]): void {
+  // Intentionally disabled: PPTP profiles are strictly isolated per Google account in Firestore
+  clearLegacySharedStorage();
 }
 
 export function getStoredTerminalSessions(): SavedTerminalSession[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_TERMINAL_SESSIONS);
-    if (!raw) {
-      saveStoredTerminalSessions(DEFAULT_TERMINAL_SESSIONS);
-      return DEFAULT_TERMINAL_SESSIONS;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : DEFAULT_TERMINAL_SESSIONS;
-  } catch {
-    return DEFAULT_TERMINAL_SESSIONS;
-  }
+  return [];
 }
 
-export function saveStoredTerminalSessions(sessions: SavedTerminalSession[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY_TERMINAL_SESSIONS, JSON.stringify(sessions));
-  } catch (ignored) {}
+export function saveStoredTerminalSessions(_sessions: SavedTerminalSession[]): void {
+  // Intentionally disabled: Saved Telnet/SSH credentials are strictly isolated per Google account in Firestore
+  clearLegacySharedStorage();
 }
 
 export function getActiveProfileId(): string {
-  try {
-    const active = localStorage.getItem(STORAGE_KEY_ACTIVE);
-    if (active) return active;
-  } catch (ignored) {}
-  return DEFAULT_PROFILES[0].id;
+  return '';
 }
 
-export function setActiveProfileId(id: string): void {
-  try {
-    localStorage.setItem(STORAGE_KEY_ACTIVE, id);
-  } catch (ignored) {}
-}
+export function setActiveProfileId(_id: string): void {}
 
 export function getStoredCommandNotes(): SavedCommandNote[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_COMMAND_NOTES);
-    if (!raw) {
-      saveStoredCommandNotes(DEFAULT_COMMAND_NOTES);
-      return DEFAULT_COMMAND_NOTES;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : DEFAULT_COMMAND_NOTES;
-  } catch {
-    return DEFAULT_COMMAND_NOTES;
-  }
+  return DEFAULT_COMMAND_NOTES;
 }
 
-export function saveStoredCommandNotes(notes: SavedCommandNote[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY_COMMAND_NOTES, JSON.stringify(notes));
-  } catch (ignored) {}
-}
+export function saveStoredCommandNotes(_notes: SavedCommandNote[]): void {}
+
 
 

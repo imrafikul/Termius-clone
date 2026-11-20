@@ -132,10 +132,19 @@
           "description": "ISP or router identifier tag",
           "maxLength": 100
         },
+        "protocol": {
+          "type": "string",
+          "description": "VPN protocol: pptp, l2tp, or sstp",
+          "enum": ["pptp", "l2tp", "sstp"]
+        },
         "host": {
           "type": "string",
           "description": "Server IP address or hostname",
           "maxLength": 255
+        },
+        "port": {
+          "type": "number",
+          "description": "VPN server TCP/UDP port (1-65535)"
         },
         "username": {
           "type": "string",

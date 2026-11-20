@@ -45,10 +45,12 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
 
   React.useEffect(() => {
     if (externalOpenAddModal) {
-      openAddModal();
+      if (user) {
+        openAddModal();
+      }
       onResetExternalOpenAdd?.();
     }
-  }, [externalOpenAddModal]);
+  }, [externalOpenAddModal, user]);
 
   const [formName, setFormName] = useState('');
   const [formProtocol, setFormProtocol] = useState<'l2tp' | 'sstp' | 'pptp'>('pptp');
@@ -63,6 +65,10 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
   const [formTags, setFormTags] = useState('');
 
   const openAddModal = () => {
+    if (!user) {
+      void loginWithGoogle();
+      return;
+    }
     setEditingProfile(null);
     setFormName('');
     setFormProtocol('pptp');
@@ -80,6 +86,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
   };
 
   const openEditModal = (profile: VpnProfile) => {
+    if (!user) return;
     setEditingProfile(profile);
     const proto = profile.protocol || 'pptp';
     setFormName(profile.name);
@@ -124,6 +131,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
     if (!validateSubnets(formSubnets, formRoutingMode)) return;
 
     const subnets = formSubnets
@@ -161,6 +169,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
   };
 
   const exportProfilesJson = () => {
+    if (!user) return;
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(profiles, null, 2));
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', dataStr);
@@ -170,6 +179,30 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
     downloadAnchor.remove();
   };
 
+  if (!user) {
+    return (
+      <div className="max-w-2xl mx-auto py-12 px-4 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-slate-100 border border-slate-300 text-black mx-auto flex items-center justify-center mb-4">
+          <Lock className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-bold text-black mb-2">
+          লগইন ছাড়া সেভ করা PPTP প্রোফাইল দেখা বা ব্যবহার করা যাবে না
+        </h2>
+        <p className="text-xs sm:text-sm text-slate-700 mb-6 leading-relaxed">
+          কঠোর নিরাপত্তার জন্য প্রতিটি PPTP প্রোফাইল শুধুমাত্র যেই Google অ্যাকাউন্টে সেভ করা হয়েছে সেই অ্যাকাউন্টে (এবং Main Admin Panel-এ) সীমাবদ্ধ। অন্য কোনো অ্যাকাউন্ট বা লগইন ছাড়া কেউ কোনো প্রোফাইল দেখতে বা কানেক্ট করতে পারবে না।
+        </p>
+        <button
+          type="button"
+          onClick={loginWithGoogle}
+          className="px-6 py-2.5 rounded-xl bg-black hover:bg-slate-800 text-white font-bold text-xs transition cursor-pointer inline-flex items-center gap-2"
+        >
+          <Lock className="w-4 h-4" />
+          <span>Google অ্যাকাউন্ট দিয়ে লগইন করুন</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Top action bar */}
@@ -177,14 +210,15 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
         <div>
           <h2 className="text-xl font-bold text-black tracking-tight">PPTP VPN Profiles</h2>
           <p className="text-xs text-slate-600 mt-0.5">
-            Full Internet VPN (ফোন আইপি পরিবর্তন) ও স্প্লিট-টানেল মোড সমর্থন করে।
+            শুধুমাত্র <span className="font-mono font-semibold text-black">{user.email}</span> অ্যাকাউন্টের প্রাইভেট PPTP প্রোফাইলসমূহ।
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             onClick={exportProfilesJson}
-            className="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-black text-xs font-mono font-semibold transition-colors flex items-center gap-1.5 cursor-pointer border border-slate-300"
+            disabled={profiles.length === 0}
+            className="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-black text-xs font-mono font-semibold transition-colors flex items-center gap-1.5 cursor-pointer border border-slate-300 disabled:opacity-50"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Export JSON</span>
@@ -200,34 +234,37 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({
       </div>
 
       {/* Account Isolation Notice */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
         <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 shrink-0">
+          <div className="p-1.5 rounded-lg bg-white border border-emerald-200 text-emerald-700 shrink-0">
             <Lock className="w-4 h-4" />
           </div>
-          <div>
-            {user ? (
-              <p className="text-black">
-                <strong className="text-emerald-800 font-semibold">প্রাইভেট ডাটা সুরক্ষা সক্রিয়: </strong>
-                আপনার সব PPTP প্রোফাইল Google অ্যাকাউন্ট (<span className="font-mono font-semibold">{user.email}</span>) এর সাথে ক্লাউড ফায়ারস্টোরে আইসোলেটেড। অন্য কোনো ডিভাইস বা ইউজার এই তথ্য দেখতে বা অ্যাক্সেস করতে পারবে না।
-              </p>
-            ) : (
-              <p className="text-black">
-                <strong className="text-amber-800 font-semibold">গেস্ট লোকাল মোড: </strong>
-                আপনার প্রোফাইল ক্লাউডে ব্যাকআপ এবং অন্য ডিভাইস বা ব্যক্তির অ্যাক্সেস থেকে সুরক্ষিত রাখতে Google দিয়ে লগইন করুন।
-              </p>
-            )}
-          </div>
+          <p className="text-black">
+            <strong className="text-emerald-800 font-semibold">Strict Account Isolation সক্রিয়: </strong>
+            এই প্রোফাইলগুলো শুধুমাত্র আপনার Google অ্যাকাউন্ট (<span className="font-mono font-semibold">{user.email}</span>) এবং Main Admin Panel থেকে দেখা যাবে। লগআউট করলে বা অন্য Google অ্যাকাউন্টে লগইন করলে এগুলো সম্পূর্ণ লুকানো থাকবে।
+          </p>
         </div>
-        {!user && (
-          <button
-            onClick={loginWithGoogle}
-            className="shrink-0 px-3 py-1.5 rounded-lg bg-black hover:bg-slate-800 text-white font-semibold text-xs transition cursor-pointer"
-          >
-            Google লগইন
-          </button>
-        )}
       </div>
+
+      {/* Empty State for Clean New Account */}
+      {profiles.length === 0 ? (
+        <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-10 text-center">
+          <p className="text-sm font-bold text-black mb-1">
+            আপনার এই অ্যাকাউন্টে এখনো কোনো PPTP প্রোফাইল সেভ করা নেই
+          </p>
+          <p className="text-xs text-slate-600 mb-4">
+            আপনার MikroTik PPTP/L2TP/SSTP সার্ভার যোগ করুন — এটি শুধুমাত্র এই Google অ্যাকাউন্টেই সুরক্ষিত থাকবে।
+          </p>
+          <button
+            type="button"
+            onClick={openAddModal}
+            className="px-4 py-2 rounded-lg bg-black hover:bg-slate-800 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Add First PPTP Profile</span>
+          </button>
+        </div>
+      ) : null}
 
       {/* Profiles Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">

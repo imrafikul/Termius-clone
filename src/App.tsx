@@ -32,6 +32,7 @@ function AppContent() {
     deviceName: string;
   } | null>(null);
   const {
+    user,
     profiles,
     activeProfileId,
     setActiveProfileId,
@@ -117,8 +118,19 @@ function AppContent() {
     });
   }, []);
 
+  // Disconnect active VPN tunnel immediately if user signs out
+  useEffect(() => {
+    if (!user && (connectionState === 'CONNECTED' || connectionState === 'GATEWAY_READY')) {
+      void disconnectSequence();
+    }
+  }, [user]);
+
   // Real PPTP (RFC 2637 TCP 1723 + GRE 47 / Windows RAS), L2TPv2 (UDP 1701) & MS-SSTP (TCP 443)
   const startConnectionSequence = async (targetProfile?: VpnProfile, overrideProtocol?: VpnProtocol) => {
+    if (!user) {
+      setActiveTab('profiles');
+      return;
+    }
     const profile = targetProfile || activeProfile;
     if (!profile) return;
 
@@ -343,7 +355,9 @@ function AppContent() {
 
   const handleOpenAddProfile = () => {
     setActiveTab('profiles');
-    setOpenAddModalFlag(true);
+    if (user) {
+      setOpenAddModalFlag(true);
+    }
   };
 
   return (

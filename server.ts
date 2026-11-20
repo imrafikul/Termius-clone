@@ -1848,7 +1848,10 @@ app.get('/api/download-desktop-app', async (_req: Request, res: Response) => {
   try {
     const zip = new JSZip();
 
-    const addDirToZip = (relDir: string, skipDirs = new Set(['node_modules', '.git'])) => {
+    const addDirToZip = (
+      relDir: string,
+      skipDirs = new Set(['node_modules', '.git', 'releases', 'dev-dist', '__pycache__', 'aistudio'])
+    ) => {
       const absDir = path.join(__dirname, relDir);
       if (!fs.existsSync(absDir)) return;
       const entries = fs.readdirSync(absDir, { withFileTypes: true });
@@ -1904,7 +1907,7 @@ if %errorlevel% neq 0 (
 
 if not exist "node_modules" (
   echo [1/3] Installing required packages (first run only)...
-  call npm install --no-audit --no-fund
+  call npm install --omit=dev --no-audit --no-fund
   if %errorlevel% neq 0 (
     echo [ERROR] npm install failed. Check internet connection.
     pause
@@ -1957,7 +1960,7 @@ fi
 
 if [ ! -d "node_modules" ]; then
   echo "[1/3] Installing dependencies (first launch only)..."
-  npm install --no-audit --no-fund
+  npm install --omit=dev --no-audit --no-fund
 fi
 
 echo "[2/3] Starting local engine on http://localhost:3000 ..."
@@ -2077,11 +2080,13 @@ app.get('/api/pkg/:target/part/:index', (req: Request, res: Response) => {
   fs.createReadStream(pkg.gzPath, { start, end }).pipe(res);
 });
 
-// Direct Ready-to-Run Standalone Windows 64-bit .exe Download (Zero Dependencies!)
+const GITHUB_RELEASES_URL = 'https://github.com/imrafikul/Termius-clone/releases/latest';
+
+// Direct Ready-to-Run Standalone Windows 64-bit .exe Download (falls back to external GitHub Release when not bundled locally)
 app.get('/api/download-windows-exe', (_req: Request, res: Response) => {
   const exePath = path.join(__dirname, 'releases', 'Universal-WebUI-Network-Engineer.exe');
   if (!fs.existsSync(exePath)) {
-    return res.status(404).json({ error: 'Windows executable is not built yet.' });
+    return res.redirect(302, GITHUB_RELEASES_URL);
   }
   const stat = fs.statSync(exePath);
   res.setHeader('Content-Type', 'application/octet-stream');
@@ -2090,11 +2095,11 @@ app.get('/api/download-windows-exe', (_req: Request, res: Response) => {
   fs.createReadStream(exePath).pipe(res);
 });
 
-// Direct Ready-to-Run Standalone Linux x64 Executable Download
+// Direct Ready-to-Run Standalone Linux x64 Executable Download (falls back to external GitHub Release when not bundled locally)
 app.get('/api/download-linux-bin', (_req: Request, res: Response) => {
   const binPath = path.join(__dirname, 'releases', 'Universal-WebUI-Network-Engineer-Linux-x64');
   if (!fs.existsSync(binPath)) {
-    return res.status(404).json({ error: 'Linux executable is not built yet.' });
+    return res.redirect(302, GITHUB_RELEASES_URL);
   }
   const stat = fs.statSync(binPath);
   res.setHeader('Content-Type', 'application/octet-stream');

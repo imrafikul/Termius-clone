@@ -12,6 +12,11 @@ import {
   Search,
   Lock,
   Award,
+  Eye,
+  EyeOff,
+  ChevronDown,
+  ChevronUp,
+  Server,
 } from 'lucide-react';
 import { useAuth, ADMIN_EMAILS } from '../context/AuthContext';
 
@@ -20,6 +25,7 @@ export const AdminPanelView: React.FC = () => {
     user,
     isAdmin,
     adminUsers,
+    adminUserProfiles,
     adminLicenses,
     loadAdminData,
     createLicenseKey,
@@ -31,6 +37,8 @@ export const AdminPanelView: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [expandedUserIds, setExpandedUserIds] = useState<Record<string, boolean>>({});
+  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
 
   const [targetEmail, setTargetEmail] = useState('');
   const [tier, setTier] = useState<'free_trial' | 'pro_engineer' | 'enterprise'>('pro_engineer');
@@ -50,6 +58,14 @@ export const AdminPanelView: React.FC = () => {
     setIsLoading(true);
     await loadAdminData();
     setIsLoading(false);
+  };
+
+  const toggleExpandUser = (uid: string) => {
+    setExpandedUserIds((prev) => ({ ...prev, [uid]: !prev[uid] }));
+  };
+
+  const toggleRevealPassword = (profileKey: string) => {
+    setRevealedPasswords((prev) => ({ ...prev, [profileKey]: !prev[profileKey] }));
   };
 
   const handleCreateLicense = async (e: React.FormEvent) => {
@@ -93,7 +109,7 @@ export const AdminPanelView: React.FC = () => {
         </div>
         <h2 className="text-xl font-bold text-black mb-2">এডমিন প্যানেল এক্সেস সংরক্ষিত (Admin Only)</h2>
         <p className="text-sm text-slate-700 mb-6 leading-relaxed">
-          এই এডমিন প্যানেল শুধুমাত্র অনুমোদিত Google অ্যাকাউন্ট দ্বারা নিয়ন্ত্রিত। লাইসেন্স তৈরি এবং ব্যবহারকারী তালিকা দেখতে নিচের যেকোনো একটি এডমিন অ্যাকাউন্ট দিয়ে লগইন করুন:
+          এই এডমিন প্যানেল শুধুমাত্র অনুমোদিত Google অ্যাকাউন্ট দ্বারা নিয়ন্ত্রিত। সকল ইউজারের প্রাইভেট PPTP প্রোফাইল ও লাইসেন্স দেখতে অনুমোদিত মেইন এডমিন অ্যাকাউন্ট দিয়ে লগইন করুন:
         </p>
 
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 max-w-md mx-auto text-left mb-6 space-y-2">
@@ -101,7 +117,7 @@ export const AdminPanelView: React.FC = () => {
             <Lock className="w-3.5 h-3.5" />
             <span>অনুমোদিত এডমিন অ্যাকাউন্টসমূহ:</span>
           </div>
-          {ADMIN_EMAILS.slice(0, 2).map((adm, i) => (
+          {ADMIN_EMAILS.map((adm, i) => (
             <div key={i} className="flex items-center gap-2 text-xs font-mono text-black bg-white p-2 rounded-lg border border-slate-200">
               <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
               <span>{adm}</span>
@@ -127,7 +143,7 @@ export const AdminPanelView: React.FC = () => {
 
   const totalUsers = adminUsers.length;
   const activeTrials = adminUsers.filter((u) => u.licenseTier === 'free_trial' && u.daysRemaining > 0).length;
-  const totalProLicenses = adminUsers.filter((u) => u.licenseTier === 'pro_engineer' || u.licenseTier === 'enterprise').length;
+  const totalSavedProfiles = Object.values(adminUserProfiles).reduce((acc, list) => acc + list.length, 0);
 
   return (
     <div className="space-y-6">
@@ -138,16 +154,16 @@ export const AdminPanelView: React.FC = () => {
             <div className="flex items-center gap-2 mb-1.5 text-xs font-mono">
               <span className="text-emerald-700 font-bold flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Admin Privileges Active</span>
+                <span>Main Admin Privileges Active</span>
               </span>
               <span className="text-slate-400">·</span>
               <span className="text-slate-600">{user?.email}</span>
             </div>
             <h2 className="text-2xl font-bold text-black tracking-tight">
-              Universal WebUI for Network Engineer — এডমিন ও লাইসেন্স কন্ট্রোল প্যানেল
+              Universal WebUI for Network Engineer — মেইন এডমিন প্যানেল
             </h2>
             <p className="text-xs text-slate-600 mt-1">
-              সকল ব্যবহারকারী পর্যবেক্ষণ, ১ মাসের ফ্রি ট্রায়াল ট্র্যাকিং এবং নতুন কাস্টম লাইসেন্স কি তৈরি করুন।
+              প্রতিটি Google অ্যাকাউন্টের তথ্য সম্পূর্ণ আলাদা (Isolated)। শুধুমাত্র নিজ নিজ Google অ্যাকাউন্ট এবং এই Main Admin Panel থেকেই সেভ করা PPTP প্রোফাইল দেখা যাবে।
             </p>
           </div>
 
@@ -191,6 +207,19 @@ export const AdminPanelView: React.FC = () => {
 
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-3.5">
             <div className="text-[11px] font-mono text-slate-600 flex items-center justify-between">
+              <span>Saved PPTP Profiles</span>
+              <Server className="w-4 h-4 text-blue-700" />
+            </div>
+            <div className="text-2xl font-bold text-blue-800 font-mono mt-1 tabular-nums">
+              {totalSavedProfiles}
+            </div>
+            <div className="text-[10px] text-slate-600 mt-0.5">
+              সকল অ্যাকাউন্টের মোট আইসোলেটেড প্রোফাইল
+            </div>
+          </div>
+
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3.5">
+            <div className="text-[11px] font-mono text-slate-600 flex items-center justify-between">
               <span>1 Month Free Trials</span>
               <Clock className="w-4 h-4 text-emerald-700" />
             </div>
@@ -204,21 +233,8 @@ export const AdminPanelView: React.FC = () => {
 
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-3.5">
             <div className="text-[11px] font-mono text-slate-600 flex items-center justify-between">
-              <span>Pro / Enterprise Users</span>
-              <Award className="w-4 h-4 text-purple-700" />
-            </div>
-            <div className="text-2xl font-bold text-purple-800 font-mono mt-1 tabular-nums">
-              {totalProLicenses}
-            </div>
-            <div className="text-[10px] text-slate-600 mt-0.5">
-              উন্নত বা বর্ধিত লাইসেন্স এক্টিভ
-            </div>
-          </div>
-
-          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3.5">
-            <div className="text-[11px] font-mono text-slate-600 flex items-center justify-between">
               <span>Created License Keys</span>
-              <KeyRound className="w-4 h-4 text-amber-700" />
+              <Award className="w-4 h-4 text-amber-700" />
             </div>
             <div className="text-2xl font-bold text-amber-800 font-mono mt-1 tabular-nums">
               {adminLicenses.length}
@@ -230,16 +246,16 @@ export const AdminPanelView: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. Registered Users Directory */}
+      {/* 3. Registered Users Directory + Expandable Isolated PPTP Inspector */}
       <div className="bg-white border border-slate-200 rounded-xl p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
           <div>
             <h3 className="text-base font-bold text-black tracking-tight flex items-center gap-2">
               <Users className="w-4 h-4 text-black" />
-              <span>নিবন্ধিত ব্যবহারকারী ও লাইসেন্স স্ট্যাটাস ({filteredUsers.length})</span>
+              <span>নিবন্ধিত ব্যবহারকারী ও সেভ করা PPTP প্রোফাইল ({filteredUsers.length})</span>
             </h3>
             <p className="text-xs text-slate-600 mt-0.5">
-              প্রতিটি ব্যবহারকারী লগইন করার সাথে সাথে স্বয়ংক্রিয়ভাবে ৩০ দিনের ফ্রি ট্রায়াল পান।
+              যেকোনো ইউজারের &quot;View PPTP&quot; বাটনে ক্লিক করে ওই Google অ্যাকাউন্টের সেভ করা সব PPTP সার্ভার, ইউজারনেম ও পাসওয়ার্ড দেখুন।
             </p>
           </div>
 
@@ -263,7 +279,7 @@ export const AdminPanelView: React.FC = () => {
               <tr className="border-b border-slate-200 text-slate-600">
                 <th className="pb-3 font-semibold">User Profile</th>
                 <th className="pb-3 font-semibold">License Tier</th>
-                <th className="pb-3 font-semibold">PPTP Profiles</th>
+                <th className="pb-3 font-semibold">Saved PPTP Profiles</th>
                 <th className="pb-3 font-semibold">Trial Validity</th>
                 <th className="pb-3 font-semibold">Status</th>
                 <th className="pb-3 font-semibold text-right">Admin Actions</th>
@@ -282,81 +298,176 @@ export const AdminPanelView: React.FC = () => {
                   const isUserAdmin = ADMIN_EMAILS.some(
                     (adm) => adm.toLowerCase() === u.email.toLowerCase()
                   );
+                  const userProfiles = adminUserProfiles[u.userId] || [];
+                  const isExpanded = Boolean(expandedUserIds[u.userId]);
 
                   return (
-                    <tr key={u.userId} className="text-black hover:bg-slate-50 transition">
-                      <td className="py-3">
-                        <div className="flex items-center gap-2.5">
-                          {u.photoURL ? (
-                            <img src={u.photoURL} alt="" referrerPolicy="no-referrer" className="w-7 h-7 rounded-full border border-slate-300" />
-                          ) : (
-                            <div className="w-7 h-7 rounded-full bg-black text-white font-bold flex items-center justify-center text-xs">
-                              {u.email[0].toUpperCase()}
+                    <React.Fragment key={u.userId}>
+                      <tr className="text-black hover:bg-slate-50 transition">
+                        <td className="py-3">
+                          <div className="flex items-center gap-2.5">
+                            {u.photoURL ? (
+                              <img src={u.photoURL} alt="" referrerPolicy="no-referrer" className="w-7 h-7 rounded-full border border-slate-300" />
+                            ) : (
+                              <div className="w-7 h-7 rounded-full bg-black text-white font-bold flex items-center justify-center text-xs">
+                                {u.email[0].toUpperCase()}
+                              </div>
+                            )}
+                            <div>
+                              <div className="font-semibold text-black flex items-center gap-1.5 font-sans">
+                                <span>{u.displayName}</span>
+                                {isUserAdmin && (
+                                  <span className="text-[10px] font-mono text-red-700 font-bold">
+                                    · ADMIN
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-slate-600">{u.email}</div>
                             </div>
-                          )}
-                          <div>
-                            <div className="font-semibold text-black flex items-center gap-1.5 font-sans">
-                              <span>{u.displayName}</span>
-                              {isUserAdmin && (
-                                <span className="text-[10px] font-mono text-red-700 font-bold">
-                                  · ADMIN
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[11px] text-slate-600">{u.email}</div>
                           </div>
-                        </div>
-                      </td>
+                        </td>
 
-                      <td className="py-3 font-semibold">
-                        {u.licenseTier === 'enterprise'
-                          ? 'Enterprise'
-                          : u.licenseTier === 'pro_engineer'
-                          ? 'Pro Engineer'
-                          : '1-Mo Free Trial'}
-                      </td>
+                        <td className="py-3 font-semibold">
+                          {u.licenseTier === 'enterprise'
+                            ? 'Enterprise'
+                            : u.licenseTier === 'pro_engineer'
+                            ? 'Pro Engineer'
+                            : '1-Mo Free Trial'}
+                        </td>
 
-                      <td className="py-3 font-bold tabular-nums">
-                        {u.profilesCount} profiles
-                      </td>
+                        <td className="py-3">
+                          <button
+                            type="button"
+                            onClick={() => toggleExpandUser(u.userId)}
+                            className={`px-2.5 py-1 rounded border text-[11px] font-bold inline-flex items-center gap-1.5 transition cursor-pointer ${
+                              userProfiles.length > 0
+                                ? 'bg-blue-50 border-blue-300 text-blue-900 hover:bg-blue-100'
+                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            <span>View PPTP ({userProfiles.length})</span>
+                            {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                          </button>
+                        </td>
 
-                      <td className="py-3">
-                        <div className="flex items-center gap-1.5">
-                          <Clock className={`w-3.5 h-3.5 ${isExp ? 'text-red-700' : 'text-emerald-700'}`} />
-                          <span className={isExp ? 'text-red-700 font-bold' : 'text-black'}>
-                            {u.daysRemaining} days left
+                        <td className="py-3">
+                          <div className="flex items-center gap-1.5">
+                            <Clock className={`w-3.5 h-3.5 ${isExp ? 'text-red-700' : 'text-emerald-700'}`} />
+                            <span className={isExp ? 'text-red-700 font-bold' : 'text-black'}>
+                              {u.daysRemaining} days left
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-slate-600">
+                            Expires: {new Date(u.trialExpiresAt).toLocaleDateString()}
+                          </div>
+                        </td>
+
+                        <td className="py-3">
+                          <span className={`font-bold ${isExp ? 'text-red-700' : 'text-emerald-700'}`}>
+                            {isExp ? 'EXPIRED' : 'ACTIVE'}
                           </span>
-                        </div>
-                        <div className="text-[10px] text-slate-600">
-                          Expires: {new Date(u.trialExpiresAt).toLocaleDateString()}
-                        </div>
-                      </td>
+                        </td>
 
-                      <td className="py-3">
-                        <span className={`font-bold ${isExp ? 'text-red-700' : 'text-emerald-700'}`}>
-                          {isExp ? 'EXPIRED' : 'ACTIVE'}
-                        </span>
-                      </td>
+                        <td className="py-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => adminExtendUserTrial(u.userId, 30)}
+                              className="px-2 py-1 bg-slate-100 hover:bg-black text-black hover:text-white border border-slate-300 rounded text-[11px] font-semibold transition cursor-pointer"
+                              title="Add 30 days to user's trial"
+                            >
+                              +30 Days
+                            </button>
+                            <button
+                              onClick={() => adminExtendUserTrial(u.userId, 90)}
+                              className="px-2 py-1 bg-slate-100 hover:bg-black text-black hover:text-white border border-slate-300 rounded text-[11px] font-semibold transition cursor-pointer"
+                              title="Upgrade / Add 90 days"
+                            >
+                              +90 Days
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
 
-                      <td className="py-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => adminExtendUserTrial(u.userId, 30)}
-                            className="px-2 py-1 bg-slate-100 hover:bg-black text-black hover:text-white border border-slate-300 rounded text-[11px] font-semibold transition cursor-pointer"
-                            title="Add 30 days to user's trial"
-                          >
-                            +30 Days
-                          </button>
-                          <button
-                            onClick={() => adminExtendUserTrial(u.userId, 90)}
-                            className="px-2 py-1 bg-slate-100 hover:bg-black text-black hover:text-white border border-slate-300 rounded text-[11px] font-semibold transition cursor-pointer"
-                            title="Upgrade / Add 90 days"
-                          >
-                            +90 Days
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                      {isExpanded && (
+                        <tr className="bg-slate-50">
+                          <td colSpan={6} className="p-4">
+                            <div className="text-[11px] font-bold text-black mb-2 flex items-center justify-between">
+                              <span>
+                                Saved PPTP Profiles for <span className="text-blue-800">{u.email}</span> ({userProfiles.length})
+                              </span>
+                              <span className="text-[10px] text-slate-600 font-normal">
+                                Owner UID: {u.userId}
+                              </span>
+                            </div>
+
+                            {userProfiles.length === 0 ? (
+                              <div className="text-xs text-slate-600 bg-white border border-slate-200 rounded-lg p-3">
+                                এই Google অ্যাকাউন্টে এখনো কোনো PPTP প্রোফাইল সেভ করা হয়নি।
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {userProfiles.map((p) => {
+                                  const pwKey = `${u.userId}_${p.id}`;
+                                  const isRevealed = Boolean(revealedPasswords[pwKey]);
+                                  return (
+                                    <div
+                                      key={p.id}
+                                      className="bg-white border border-slate-200 rounded-lg p-3 space-y-1.5 text-[11px]"
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="font-bold text-black font-sans text-xs">{p.name}</span>
+                                        <span className="text-[10px] font-bold uppercase text-blue-800 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
+                                          {(p.protocol || 'pptp').toUpperCase()} · {p.routingMode === 'full' ? 'FULL' : 'SPLIT'}
+                                        </span>
+                                      </div>
+                                      <div className="text-slate-800">
+                                        <span className="text-slate-500">Server: </span>
+                                        <span className="font-bold">{p.server}:{p.port}</span>
+                                      </div>
+                                      <div className="flex items-center justify-between gap-2 text-slate-800">
+                                        <div>
+                                          <span className="text-slate-500">User: </span>
+                                          <span className="font-bold">{p.username}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                          <span className="text-slate-500">Pass: </span>
+                                          <span className="font-bold">
+                                            {isRevealed ? p.password : '••••••••'}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => toggleRevealPassword(pwKey)}
+                                            className="p-1 rounded hover:bg-slate-100 text-slate-600 hover:text-black cursor-pointer"
+                                            title={isRevealed ? 'Hide Password' : 'Show Password'}
+                                          >
+                                            {isRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCopy(`${p.server}:${p.port} | ${p.username} | ${p.password}`)}
+                                            className="p-1 rounded hover:bg-slate-100 text-slate-600 hover:text-black cursor-pointer"
+                                            title="Copy Server/User/Pass"
+                                          >
+                                            {copiedKey === `${p.server}:${p.port} | ${p.username} | ${p.password}` ? (
+                                              <Check className="w-3.5 h-3.5 text-emerald-700" />
+                                            ) : (
+                                              <Copy className="w-3.5 h-3.5" />
+                                            )}
+                                          </button>
+                                        </div>
+                                      </div>
+                                      <div className="text-[10px] text-slate-600">
+                                        Subnets: <span className="text-black font-semibold">{p.remoteSubnets.join(', ')}</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })
               )}

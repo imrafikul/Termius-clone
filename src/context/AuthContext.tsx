@@ -21,6 +21,7 @@ import {
 } from '../services/firebase';
 import {
   VpnProfile,
+  VpnProtocol,
   UserLicense,
   AdminUserRecord,
   SavedTerminalSession,
@@ -28,14 +29,10 @@ import {
   TerminalVendor,
 } from '../types/vpn';
 import {
-  DEFAULT_PROFILES,
-  getStoredProfiles,
-  saveStoredProfiles,
-  getStoredTerminalSessions,
-  saveStoredTerminalSessions,
-  getStoredCommandNotes,
-  saveStoredCommandNotes,
+  DEFAULT_COMMAND_NOTES,
+  clearLegacySharedStorage,
 } from '../services/storage';
+import { disconnectRealVpnTunnel } from '../services/api';
 
 export const ADMIN_EMAILS = [
   'rafikul18285@gmail.com',
@@ -82,8 +79,9 @@ interface AuthContextType {
   syncStatus: 'synced' | 'syncing' | 'local' | 'error';
   errorMessage: string | null;
   clearError: () => void;
-  // Admin Methods
+  // Admin Methods (Strict Main Admin Only)
   adminUsers: AdminUserRecord[];
+  adminUserProfiles: Record<string, VpnProfile[]>;
   adminLicenses: AdminLicenseItem[];
   loadAdminData: () => Promise<void>;
   createLicenseKey: (data: {
@@ -97,31 +95,90 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function parseFirestoreProfileDoc(docId: string, data: Record<string, any>): VpnProfile {
+  const rawProto = data.protocol;
+  const protocol: VpnProtocol =
+    rawProto === 'l2tp' || rawProto === 'sstp' || rawProto === 'pptp' ? rawProto : 'pptp';
+  const defaultPort = protocol === 'sstp' ? 443 : protocol === 'l2tp' ? 1701 : 1723;
+
+  return {
+    id: docId,
+    name: data.ispName || data.name || 'Unnamed PPTP',
+    protocol,
+    server: data.host || data.server || '',
+    port: typeof data.port === 'number' && data.port > 0 ? data.port : defaultPort,
+    username: data.username || '',
+    password: data.password || '',
+    routingMode: data.routingMode === 'full' ? 'full' : 'split',
+    remoteSubnets: Array.isArray(data.remoteSubnets)
+      ? data.remoteSubnets
+      : data.targetSubnet
+      ? [data.targetSubnet]
+      : ['192.168.88.0/24'],
+    mtu: data.mtu || 1400,
+    mru: data.mru || 1400,
+    encryption: data.encryption || 'mppe-128',
+    keepaliveInterval: data.keepaliveInterval || 30,
+    autoReconnect: data.autoReconnect ?? true,
+    dnsServers: data.dnsServers || ['1.1.1.1', '8.8.8.8'],
+    tags: data.tags || ['MikroTik', 'Private'],
+    lastConnected: data.lastConnected,
+  };
+}
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [license, setLicense] = useState<UserLicense | null>(null);
+  // STRICT ISOLATION: Start completely empty — NEVER hydrate shared localStorage!
   const [profiles, setProfiles] = useState<VpnProfile[]>([]);
-  const [terminalSessions, setTerminalSessions] = useState<SavedTerminalSession[]>(() =>
-    getStoredTerminalSessions()
-  );
-  const [commandNotes, setCommandNotes] = useState<SavedCommandNote[]>(() =>
-    getStoredCommandNotes()
-  );
+  const [terminalSessions, setTerminalSessions] = useState<SavedTerminalSession[]>([]);
+  const [commandNotes, setCommandNotes] = useState<SavedCommandNote[]>(DEFAULT_COMMAND_NOTES);
   const [activeProfileId, setActiveProfileIdState] = useState<string>('');
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'local' | 'error'>('local');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Admin state
   const [adminUsers, setAdminUsers] = useState<AdminUserRecord[]>([]);
+  const [adminUserProfiles, setAdminUserProfiles] = useState<Record<string, VpnProfile[]>>({});
   const [adminLicenses, setAdminLicenses] = useState<AdminLicenseItem[]>([]);
 
   const isAdmin = Boolean(
     user && user.email && ADMIN_EMAILS.some((adm) => adm.toLowerCase() === user.email?.toLowerCase())
   );
 
-  // REAL-TIME AUTO UPDATE: Listen to Auth & Firestore changes live
+  // Helper: fetch every registered user's PPTP profiles for the Main Admin Panel
+  const fetchAllUsersProfilesForAdmin = async (userIds: string[]) => {
+    const map: Record<string, VpnProfile[]> = {};
+    await Promise.all(
+      userIds.map(async (uid) => {
+        try {
+          const pSnap = await getDocs(collection(db, `users/${uid}/profiles`));
+          const list: VpnProfile[] = [];
+          pSnap.forEach((pd) => {
+            list.push(parseFirestoreProfileDoc(pd.id, pd.data()));
+          });
+          map[uid] = list;
+        } catch {
+          map[uid] = [];
+        }
+      })
+    );
+    setAdminUserProfiles(map);
+    setAdminUsers((prev) =>
+      prev.map((u) => ({
+        ...u,
+        profilesCount: map[u.userId]?.length ?? 0,
+      }))
+    );
+    return map;
+  };
+
+  // REAL-TIME AUTO UPDATE: Strict per-Google-account isolation on Auth & Firestore changes
   useEffect(() => {
+    // Purge any legacy un-scoped localStorage data immediately on boot
+    clearLegacySharedStorage();
+
     let unsubUserDoc: Unsubscribe | null = null;
     let unsubProfiles: Unsubscribe | null = null;
     let unsubTerminalSessions: Unsubscribe | null = null;
@@ -130,9 +187,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     let unsubAdminLicenses: Unsubscribe | null = null;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-
-      // Clean up previous listeners
+      // Clean up previous account's listeners immediately
       if (unsubUserDoc) unsubUserDoc();
       if (unsubProfiles) unsubProfiles();
       if (unsubTerminalSessions) unsubTerminalSessions();
@@ -140,20 +195,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (unsubAdminUsers) unsubAdminUsers();
       if (unsubAdminLicenses) unsubAdminLicenses();
 
+      // Always clear legacy shared storage & wipe previous account's in-memory state first!
+      clearLegacySharedStorage();
+      setProfiles([]);
+      setActiveProfileIdState('');
+      setTerminalSessions([]);
+      setCommandNotes(DEFAULT_COMMAND_NOTES);
+      setLicense(null);
+      setAdminUsers([]);
+      setAdminUserProfiles({});
+      setAdminLicenses([]);
+
+      setUser(currentUser);
+
       if (currentUser) {
-        // Hydrate cached profiles/sessions/notes immediately so UI works even while reconnecting
-        const cachedProfiles = getStoredProfiles();
-        if (cachedProfiles.length > 0) {
-          setProfiles(cachedProfiles);
-          setActiveProfileIdState((prev) => (prev ? prev : cachedProfiles[0].id));
-        }
-        setTerminalSessions(getStoredTerminalSessions());
-        setCommandNotes(getStoredCommandNotes());
         setLoading(true);
         setSyncStatus('syncing');
 
         try {
-          // 1. Initial User Document Bootstrap (non-blocking if currently offline)
+          // 1. Initial User Document Bootstrap
           try {
             await bootstrapUserDoc(currentUser);
           } catch (bootErr) {
@@ -209,88 +269,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
           );
 
-          // 3. Real-Time Listener on PPTP Profiles (Instantly updates installed app on changes)
+          // 3. Real-Time Listener on THIS Google Account's Isolated PPTP Profiles ONLY
           const profilesPath = `users/${currentUser.uid}/profiles`;
           const profilesColRef = collection(db, profilesPath);
 
           unsubProfiles = onSnapshot(
             profilesColRef,
-            async (snap) => {
+            (snap) => {
               const list: VpnProfile[] = [];
               snap.forEach((d) => {
-                const data = d.data();
-                list.push({
-                  id: d.id,
-                  name: data.ispName || data.name || 'Unnamed ISP',
-                  server: data.host || data.server || '',
-                  port: data.port || 1723,
-                  username: data.username || '',
-                  password: data.password || '',
-                  routingMode: data.routingMode || 'split',
-                  remoteSubnets: Array.isArray(data.remoteSubnets)
-                    ? data.remoteSubnets
-                    : data.targetSubnet
-                    ? [data.targetSubnet]
-                    : ['192.168.88.0/24'],
-                  mtu: data.mtu || 1400,
-                  mru: data.mru || 1400,
-                  encryption: data.encryption || 'mppe-128',
-                  keepaliveInterval: data.keepaliveInterval || 30,
-                  autoReconnect: data.autoReconnect ?? true,
-                  dnsServers: data.dnsServers || ['1.1.1.1', '8.8.8.8'],
-                  tags: data.tags || ['MikroTik', 'Private'],
-                  lastConnected: data.lastConnected,
-                });
+                list.push(parseFirestoreProfileDoc(d.id, d.data()));
               });
 
-              // Seed initial templates only when server confirms collection is empty (never on empty offline cache)
-              if (list.length === 0 && snap.empty && !snap.metadata.fromCache) {
-                try {
-                  for (const def of DEFAULT_PROFILES) {
-                    const pRef = doc(db, profilesPath, def.id);
-                    const firstSubnet = def.remoteSubnets[0] || '192.168.88.0/24';
-                    await setDoc(pRef, {
-                      id: def.id,
-                      userId: currentUser.uid,
-                      ispName: def.name,
-                      host: def.server,
-                      port: def.port,
-                      username: def.username,
-                      password: def.password,
-                      routingMode: def.routingMode || 'split',
-                      targetSubnet: firstSubnet,
-                      routerIp: '192.168.88.1',
-                      sshPort: 22,
-                      winboxPort: 8291,
-                      remoteSubnets: def.remoteSubnets,
-                      mtu: def.mtu,
-                      mru: def.mru,
-                      encryption: def.encryption,
-                      keepaliveInterval: def.keepaliveInterval,
-                      autoReconnect: def.autoReconnect,
-                      dnsServers: def.dnsServers,
-                      tags: def.tags,
-                      createdAt: new Date().toISOString(),
-                      updatedAt: new Date().toISOString(),
-                    });
-                  }
-                } catch (seedErr) {
-                  if (isOfflineFirestoreError(seedErr)) {
-                    setSyncStatus('local');
-                    setLoading(false);
-                  } else {
-                    handleFirestoreError(seedErr, OperationType.CREATE, profilesPath);
-                  }
-                }
-              } else {
-                if (list.length > 0) {
-                  setProfiles(list);
-                  saveStoredProfiles(list);
-                  setActiveProfileIdState((prev) => (prev ? prev : list[0].id));
-                }
-                setSyncStatus(snap.metadata.fromCache ? 'local' : 'synced');
-                setLoading(false);
-              }
+              // Always reflect exact Firestore state for THIS Google account (even if empty!)
+              setProfiles(list);
+              setActiveProfileIdState((prev) =>
+                prev && list.some((p) => p.id === prev) ? prev : list[0]?.id || ''
+              );
+              setSyncStatus(snap.metadata.fromCache ? 'local' : 'synced');
+              setLoading(false);
             },
             (error) => {
               if (isOfflineFirestoreError(error)) {
@@ -302,7 +299,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
           );
 
-          // 3.5 Real-Time Listener on Saved Telnet / SSH Terminal Sessions
+          // 3.5 Real-Time Listener on THIS Google Account's Isolated Saved Telnet / SSH Sessions
           const terminalPath = `users/${currentUser.uid}/terminalSessions`;
           const terminalColRef = collection(db, terminalPath);
           const allowedVendors: TerminalVendor[] = [
@@ -345,7 +342,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               });
               tList.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
               setTerminalSessions(tList);
-              saveStoredTerminalSessions(tList);
             },
             (error) => {
               if (isOfflineFirestoreError(error)) {
@@ -356,7 +352,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
           );
 
-          // 3.6 Real-Time Listener on Saved CLI Command Notepad
+          // 3.6 Real-Time Listener on THIS Google Account's Saved CLI Command Notepad
           const notesPath = `users/${currentUser.uid}/commandNotes`;
           const notesColRef = collection(db, notesPath);
           const allowedNoteVendors: (TerminalVendor | 'All')[] = ['All', ...allowedVendors];
@@ -382,14 +378,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                   updatedAt: data.updatedAt,
                 });
               });
-              if (nList.length > 0) {
-                nList.sort((a, b) => {
-                  if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
-                  return (b.updatedAt || '').localeCompare(a.updatedAt || '');
-                });
-                setCommandNotes(nList);
-                saveStoredCommandNotes(nList);
-              }
+              nList.sort((a, b) => {
+                if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
+                return (b.updatedAt || '').localeCompare(a.updatedAt || '');
+              });
+              setCommandNotes(nList.length > 0 ? nList : DEFAULT_COMMAND_NOTES);
             },
             (error) => {
               if (!isOfflineFirestoreError(error)) {
@@ -398,7 +391,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
           );
 
-          // 4. If Admin, attach real-time live listeners on Users & Licenses
+          // 4. If Main Admin, attach live listeners on ALL Users, their PPTP Profiles & Licenses
           const isUserAdmin = ADMIN_EMAILS.some(
             (adm) => adm.toLowerCase() === currentUser.email?.toLowerCase()
           );
@@ -408,6 +401,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               collection(db, 'users'),
               (uSnap) => {
                 const uList: AdminUserRecord[] = [];
+                const uids: string[] = [];
                 uSnap.forEach((d) => {
                   const dData = d.data();
                   const expiresAt =
@@ -417,7 +411,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     0,
                     Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
                   );
-
+                  uids.push(d.id);
                   uList.push({
                     userId: d.id,
                     email: dData.email || 'No Email',
@@ -429,12 +423,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     trialStartedAt: dData.trialStartedAt || new Date().toISOString(),
                     trialExpiresAt: expiresAt,
                     daysRemaining,
-                    profilesCount: 1,
+                    profilesCount: 0,
                     createdAt: dData.createdAt || dData.trialStartedAt || new Date().toISOString(),
                     updatedAt: dData.updatedAt || new Date().toISOString(),
                   });
                 });
                 setAdminUsers(uList);
+                void fetchAllUsersProfilesForAdmin(uids);
               },
               (err) => {
                 if (isOfflineFirestoreError(err)) {
@@ -477,7 +472,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
         } catch (err: any) {
           if (isOfflineFirestoreError(err)) {
-            console.warn('Firestore temporarily unreachable; operating with local cache until reconnected.');
+            console.warn('Firestore temporarily unreachable; retrying when reconnected.');
             setSyncStatus('local');
           } else {
             console.error('Error starting live sync:', err);
@@ -486,15 +481,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setLoading(false);
         }
       } else {
-        // Guest mode: Fallback to local storage
-        const local = getStoredProfiles();
-        setProfiles(local);
-        if (local.length > 0) {
-          setActiveProfileIdState(local[0].id);
-        }
-        setTerminalSessions(getStoredTerminalSessions());
-        setCommandNotes(getStoredCommandNotes());
+        // Logged out (Guest): STRICTLY ZERO saved PPTP profiles or saved Telnet/SSH credentials visible!
+        setProfiles([]);
+        setActiveProfileIdState('');
+        setTerminalSessions([]);
+        setCommandNotes(DEFAULT_COMMAND_NOTES);
         setLicense(null);
+        setAdminUsers([]);
+        setAdminUserProfiles({});
+        setAdminLicenses([]);
         setSyncStatus('local');
         setLoading(false);
       }
@@ -518,7 +513,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const now = new Date();
     const trialStartedAt = now.toISOString();
-    const trialExpiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 Days Free Trial
+    const trialExpiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
     if (!userSnap.exists()) {
       await setDoc(userRef, {
@@ -544,10 +539,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       setErrorMessage(null);
       const res = await signInWithGoogle();
-      if (!res) {
-        // User closed the popup, clean return
-        return;
-      }
+      if (!res) return;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (
@@ -555,14 +547,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         msg.includes('auth/cancelled-popup-request') ||
         msg.includes('cancelled')
       ) {
-        // User closed or cancelled popup, do not log error
         return;
       }
       console.error('Google Sign-in failed:', msg);
       if (msg.includes('auth/unauthorized-domain')) {
         const host = typeof window !== 'undefined' ? window.location.hostname : '';
         setErrorMessage(
-          `Google Login-এর জন্য "${host}" ডোমেইনটি Firebase Console → Authentication → Settings → Authorized domains-এ যোগ করতে হবে। (অথবা Google Login ছাড়াই Local Mode-এ VPN, WebUI, Telnet/SSH ও Ping/Trace সবকিছু ১০০% ব্যবহার করতে পারবেন।)`
+          `Google Login-এর জন্য "${host}" ডোমেইনটি Firebase Console → Authentication → Settings → Authorized domains-এ যোগ করতে হবে।`
         );
       } else {
         setErrorMessage('Google লগইন ব্যর্থ হয়েছে: ' + msg);
@@ -574,12 +565,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const logout = async () => {
     try {
+      // Disconnect any active VPN tunnel so logged-out state never keeps another account's tunnel active
+      await disconnectRealVpnTunnel().catch(() => {});
       await signOutUser();
-      const local = getStoredProfiles();
-      setProfiles(local);
-      if (local.length > 0) setActiveProfileIdState(local[0].id);
-      setTerminalSessions(getStoredTerminalSessions());
+      clearLegacySharedStorage();
+      setProfiles([]);
+      setActiveProfileIdState('');
+      setTerminalSessions([]);
+      setCommandNotes(DEFAULT_COMMAND_NOTES);
       setLicense(null);
+      setAdminUsers([]);
+      setAdminUserProfiles({});
+      setAdminLicenses([]);
       setSyncStatus('local');
     } catch (err: unknown) {
       console.error('Sign-out failed:', err);
@@ -587,144 +584,163 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const addProfile = async (newProfileData: Omit<VpnProfile, 'id'>): Promise<VpnProfile> => {
+    if (!user) {
+      const msg = 'নতুন PPTP প্রোফাইল সেভ করতে আগে Google অ্যাকাউন্ট দিয়ে লগইন করুন। প্রতিটি প্রোফাইল শুধুমাত্র আপনার Google অ্যাকাউন্টেই সুরক্ষিত থাকবে।';
+      setErrorMessage(msg);
+      throw new Error(msg);
+    }
+
     const cleanId = 'prof_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 6);
+    const protocol: VpnProtocol = newProfileData.protocol || 'pptp';
     const newProfile: VpnProfile = {
       ...newProfileData,
+      protocol,
       id: cleanId,
     };
 
-    if (user) {
-      const userProfilesPath = `users/${user.uid}/profiles`;
-      try {
-        setSyncStatus('syncing');
-        const docRef = doc(db, userProfilesPath, cleanId);
-        const firstSubnet =
-          newProfile.remoteSubnets[0] ||
-          (newProfile.routingMode === 'full' ? '0.0.0.0/0' : '192.168.88.0/24');
+    const userProfilesPath = `users/${user.uid}/profiles`;
+    try {
+      setSyncStatus('syncing');
+      const docRef = doc(db, userProfilesPath, cleanId);
+      const firstSubnet =
+        newProfile.remoteSubnets[0] ||
+        (newProfile.routingMode === 'full' ? '0.0.0.0/0' : '192.168.88.0/24');
 
-        await setDoc(docRef, {
-          id: cleanId,
-          userId: user.uid,
-          ispName: newProfile.name,
-          host: newProfile.server,
-          port: newProfile.port,
-          username: newProfile.username,
-          password: newProfile.password,
-          routingMode: newProfile.routingMode || 'split',
-          targetSubnet: firstSubnet,
-          routerIp: firstSubnet.includes('/') ? firstSubnet.replace(/\.0\/\d+$/, '.1') : '10.99.0.1',
-          sshPort: 22,
-          winboxPort: 8291,
-          remoteSubnets: newProfile.remoteSubnets,
-          mtu: newProfile.mtu,
-          mru: newProfile.mru,
-          encryption: newProfile.encryption,
-          keepaliveInterval: newProfile.keepaliveInterval,
-          autoReconnect: newProfile.autoReconnect,
-          dnsServers: newProfile.dnsServers,
-          tags: newProfile.tags,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-        setSyncStatus('synced');
-      } catch (err) {
-        if (isOfflineFirestoreError(err)) {
-          setSyncStatus('local');
-        } else {
-          handleFirestoreError(err, OperationType.CREATE, userProfilesPath);
-        }
+      await setDoc(docRef, {
+        id: cleanId,
+        userId: user.uid,
+        ispName: newProfile.name,
+        protocol,
+        host: newProfile.server,
+        port: newProfile.port,
+        username: newProfile.username,
+        password: newProfile.password,
+        routingMode: newProfile.routingMode || 'split',
+        targetSubnet: firstSubnet,
+        routerIp: firstSubnet.includes('/') ? firstSubnet.replace(/\.0\/\d+$/, '.1') : '10.99.0.1',
+        sshPort: 22,
+        winboxPort: 8291,
+        remoteSubnets: newProfile.remoteSubnets,
+        mtu: newProfile.mtu,
+        mru: newProfile.mru,
+        encryption: newProfile.encryption,
+        keepaliveInterval: newProfile.keepaliveInterval,
+        autoReconnect: newProfile.autoReconnect,
+        dnsServers: newProfile.dnsServers,
+        tags: newProfile.tags,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      setSyncStatus('synced');
+    } catch (err) {
+      if (isOfflineFirestoreError(err)) {
+        setSyncStatus('local');
+      } else {
+        handleFirestoreError(err, OperationType.CREATE, userProfilesPath);
       }
     }
 
-    const updated = [newProfile, ...profiles];
-    setProfiles(updated);
-    saveStoredProfiles(updated);
+    setProfiles((prev) => [newProfile, ...prev.filter((p) => p.id !== cleanId)]);
     setActiveProfileIdState(cleanId);
     return newProfile;
   };
 
   const updateProfile = async (updatedProfile: VpnProfile): Promise<void> => {
-    if (user) {
-      const userProfilesPath = `users/${user.uid}/profiles`;
-      try {
-        setSyncStatus('syncing');
-        const docRef = doc(db, userProfilesPath, updatedProfile.id);
-        const firstSubnet =
-          updatedProfile.remoteSubnets[0] ||
-          (updatedProfile.routingMode === 'full' ? '0.0.0.0/0' : '192.168.88.0/24');
+    if (!user) {
+      const msg = 'PPTP প্রোফাইল আপডেট করতে Google অ্যাকাউন্ট দিয়ে লগইন করুন।';
+      setErrorMessage(msg);
+      return;
+    }
 
-        await setDoc(
-          docRef,
-          {
-            id: updatedProfile.id,
-            userId: user.uid,
-            ispName: updatedProfile.name,
-            host: updatedProfile.server,
-            port: updatedProfile.port,
-            username: updatedProfile.username,
-            password: updatedProfile.password,
-            routingMode: updatedProfile.routingMode || 'split',
-            targetSubnet: firstSubnet,
-            routerIp: firstSubnet.includes('/')
-              ? firstSubnet.replace(/\.0\/\d+$/, '.1')
-              : '10.99.0.1',
-            sshPort: 22,
-            winboxPort: 8291,
-            remoteSubnets: updatedProfile.remoteSubnets,
-            mtu: updatedProfile.mtu,
-            mru: updatedProfile.mru,
-            encryption: updatedProfile.encryption,
-            keepaliveInterval: updatedProfile.keepaliveInterval,
-            autoReconnect: updatedProfile.autoReconnect,
-            dnsServers: updatedProfile.dnsServers,
-            tags: updatedProfile.tags,
-            updatedAt: new Date().toISOString(),
-          },
-          { merge: true }
-        );
-        setSyncStatus('synced');
-      } catch (err) {
-        if (isOfflineFirestoreError(err)) {
-          setSyncStatus('local');
-        } else {
-          handleFirestoreError(err, OperationType.UPDATE, userProfilesPath);
-        }
+    const protocol: VpnProtocol = updatedProfile.protocol || 'pptp';
+    const userProfilesPath = `users/${user.uid}/profiles`;
+    try {
+      setSyncStatus('syncing');
+      const docRef = doc(db, userProfilesPath, updatedProfile.id);
+      const firstSubnet =
+        updatedProfile.remoteSubnets[0] ||
+        (updatedProfile.routingMode === 'full' ? '0.0.0.0/0' : '192.168.88.0/24');
+
+      await setDoc(
+        docRef,
+        {
+          id: updatedProfile.id,
+          userId: user.uid,
+          ispName: updatedProfile.name,
+          protocol,
+          host: updatedProfile.server,
+          port: updatedProfile.port,
+          username: updatedProfile.username,
+          password: updatedProfile.password,
+          routingMode: updatedProfile.routingMode || 'split',
+          targetSubnet: firstSubnet,
+          routerIp: firstSubnet.includes('/')
+            ? firstSubnet.replace(/\.0\/\d+$/, '.1')
+            : '10.99.0.1',
+          sshPort: 22,
+          winboxPort: 8291,
+          remoteSubnets: updatedProfile.remoteSubnets,
+          mtu: updatedProfile.mtu,
+          mru: updatedProfile.mru,
+          encryption: updatedProfile.encryption,
+          keepaliveInterval: updatedProfile.keepaliveInterval,
+          autoReconnect: updatedProfile.autoReconnect,
+          dnsServers: updatedProfile.dnsServers,
+          tags: updatedProfile.tags,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      setSyncStatus('synced');
+    } catch (err) {
+      if (isOfflineFirestoreError(err)) {
+        setSyncStatus('local');
+      } else {
+        handleFirestoreError(err, OperationType.UPDATE, userProfilesPath);
       }
     }
 
-    const next = profiles.map((p) => (p.id === updatedProfile.id ? updatedProfile : p));
-    setProfiles(next);
-    saveStoredProfiles(next);
+    setProfiles((prev) => prev.map((p) => (p.id === updatedProfile.id ? { ...updatedProfile, protocol } : p)));
   };
 
   const deleteProfile = async (id: string): Promise<void> => {
-    if (user) {
-      const userProfilesPath = `users/${user.uid}/profiles`;
-      try {
-        setSyncStatus('syncing');
-        const docRef = doc(db, userProfilesPath, id);
-        await deleteDoc(docRef);
-        setSyncStatus('synced');
-      } catch (err) {
-        if (isOfflineFirestoreError(err)) {
-          setSyncStatus('local');
-        } else {
-          handleFirestoreError(err, OperationType.DELETE, userProfilesPath);
-        }
+    if (!user) {
+      setErrorMessage('প্রোফাইল মুছতে Google অ্যাকাউন্ট দিয়ে লগইন করুন।');
+      return;
+    }
+
+    const userProfilesPath = `users/${user.uid}/profiles`;
+    try {
+      setSyncStatus('syncing');
+      const docRef = doc(db, userProfilesPath, id);
+      await deleteDoc(docRef);
+      setSyncStatus('synced');
+    } catch (err) {
+      if (isOfflineFirestoreError(err)) {
+        setSyncStatus('local');
+      } else {
+        handleFirestoreError(err, OperationType.DELETE, userProfilesPath);
       }
     }
 
-    const next = profiles.filter((p) => p.id !== id);
-    setProfiles(next);
-    saveStoredProfiles(next);
-    if (activeProfileId === id && next.length > 0) {
-      setActiveProfileIdState(next[0].id);
-    }
+    setProfiles((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      if (activeProfileId === id) {
+        setActiveProfileIdState(next[0]?.id || '');
+      }
+      return next;
+    });
   };
 
   const saveTerminalSession = async (
     sessionInput: Omit<SavedTerminalSession, 'id'> & { id?: string }
   ): Promise<SavedTerminalSession> => {
+    if (!user) {
+      const msg = 'Telnet/SSH হোস্ট সেভ করতে আগে Google অ্যাকাউন্ট দিয়ে লগইন করুন।';
+      setErrorMessage(msg);
+      throw new Error(msg);
+    }
+
     const rawId = sessionInput.id?.replace(/[^a-zA-Z0-9_-]/g, '');
     const cleanId =
       rawId && rawId.length > 0
@@ -749,72 +765,71 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updatedAt: nowIso,
     };
 
-    if (user) {
-      const terminalPath = `users/${user.uid}/terminalSessions`;
-      try {
-        setSyncStatus('syncing');
-        const docRef = doc(db, terminalPath, cleanId);
-        await setDoc(docRef, {
-          id: saved.id,
-          userId: user.uid,
-          name: saved.name,
-          vendor: saved.vendor,
-          protocol: saved.protocol,
-          host: saved.host,
-          port: saved.port,
-          username: saved.username,
-          password: saved.password,
-          autoLogin: saved.autoLogin,
-          createdAt: saved.createdAt,
-          updatedAt: saved.updatedAt,
-        });
-        setSyncStatus('synced');
-      } catch (err) {
-        if (isOfflineFirestoreError(err)) {
-          setSyncStatus('local');
-        } else {
-          handleFirestoreError(err, existing ? OperationType.UPDATE : OperationType.CREATE, terminalPath);
-        }
+    const terminalPath = `users/${user.uid}/terminalSessions`;
+    try {
+      setSyncStatus('syncing');
+      const docRef = doc(db, terminalPath, cleanId);
+      await setDoc(docRef, {
+        id: saved.id,
+        userId: user.uid,
+        name: saved.name,
+        vendor: saved.vendor,
+        protocol: saved.protocol,
+        host: saved.host,
+        port: saved.port,
+        username: saved.username,
+        password: saved.password,
+        autoLogin: saved.autoLogin,
+        createdAt: saved.createdAt,
+        updatedAt: saved.updatedAt,
+      });
+      setSyncStatus('synced');
+    } catch (err) {
+      if (isOfflineFirestoreError(err)) {
+        setSyncStatus('local');
+      } else {
+        handleFirestoreError(err, existing ? OperationType.UPDATE : OperationType.CREATE, terminalPath);
       }
     }
 
-    const next = existing
-      ? terminalSessions.map((s) => (s.id === cleanId ? saved : s))
-      : [saved, ...terminalSessions];
-    setTerminalSessions(next);
-    saveStoredTerminalSessions(next);
+    setTerminalSessions((prev) =>
+      existing ? prev.map((s) => (s.id === cleanId ? saved : s)) : [saved, ...prev]
+    );
     return saved;
   };
 
   const deleteTerminalSession = async (id: string): Promise<void> => {
-    if (user) {
-      const terminalPath = `users/${user.uid}/terminalSessions`;
-      try {
-        setSyncStatus('syncing');
-        await deleteDoc(doc(db, terminalPath, id));
-        setSyncStatus('synced');
-      } catch (err) {
-        if (isOfflineFirestoreError(err)) {
-          setSyncStatus('local');
-        } else {
-          handleFirestoreError(err, OperationType.DELETE, terminalPath);
-        }
+    if (!user) return;
+    const terminalPath = `users/${user.uid}/terminalSessions`;
+    try {
+      setSyncStatus('syncing');
+      await deleteDoc(doc(db, terminalPath, id));
+      setSyncStatus('synced');
+    } catch (err) {
+      if (isOfflineFirestoreError(err)) {
+        setSyncStatus('local');
+      } else {
+        handleFirestoreError(err, OperationType.DELETE, terminalPath);
       }
     }
-
-    const next = terminalSessions.filter((s) => s.id !== id);
-    setTerminalSessions(next);
-    saveStoredTerminalSessions(next);
+    setTerminalSessions((prev) => prev.filter((s) => s.id !== id));
   };
 
-  // COMMAND NOTEPAD CRUD (Local + Cloud Synced)
+  // COMMAND NOTEPAD CRUD (Account-Isolated Cloud Synced)
   const saveCommandNote = async (
     noteInput: Omit<SavedCommandNote, 'id'> & { id?: string }
   ): Promise<SavedCommandNote> => {
+    if (!user) {
+      const msg = 'কমান্ড নোটপ্যাড সেভ করতে আগে Google অ্যাকাউন্ট দিয়ে লগইন করুন।';
+      setErrorMessage(msg);
+      throw new Error(msg);
+    }
+
     const nowIso = new Date().toISOString();
-    const rawId = noteInput.id && /^[a-zA-Z0-9_-]+$/.test(noteInput.id)
-      ? noteInput.id
-      : `note_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const rawId =
+      noteInput.id && /^[a-zA-Z0-9_-]+$/.test(noteInput.id)
+        ? noteInput.id
+        : `note_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const cleanId = rawId.slice(0, 128);
     const existing = commandNotes.find((n) => n.id === cleanId);
 
@@ -830,7 +845,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updatedAt: nowIso,
     };
 
-    if (user && saved.commands.length > 0) {
+    if (saved.commands.length > 0) {
       const notesPath = `users/${user.uid}/commandNotes`;
       try {
         setSyncStatus('syncing');
@@ -857,50 +872,45 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     }
 
-    const next = (
-      existing
-        ? commandNotes.map((n) => (n.id === cleanId ? saved : n))
-        : [saved, ...commandNotes]
-    ).sort((a, b) => {
-      if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
-      return (b.updatedAt || '').localeCompare(a.updatedAt || '');
-    });
-    setCommandNotes(next);
-    saveStoredCommandNotes(next);
+    setCommandNotes((prev) =>
+      (existing ? prev.map((n) => (n.id === cleanId ? saved : n)) : [saved, ...prev]).sort(
+        (a, b) => {
+          if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
+          return (b.updatedAt || '').localeCompare(a.updatedAt || '');
+        }
+      )
+    );
     return saved;
   };
 
   const deleteCommandNote = async (id: string): Promise<void> => {
-    if (user) {
-      const notesPath = `users/${user.uid}/commandNotes`;
-      try {
-        setSyncStatus('syncing');
-        await deleteDoc(doc(db, notesPath, id));
-        setSyncStatus('synced');
-      } catch (err) {
-        if (isOfflineFirestoreError(err)) {
-          setSyncStatus('local');
-        } else {
-          handleFirestoreError(err, OperationType.DELETE, notesPath);
-        }
+    if (!user) return;
+    const notesPath = `users/${user.uid}/commandNotes`;
+    try {
+      setSyncStatus('syncing');
+      await deleteDoc(doc(db, notesPath, id));
+      setSyncStatus('synced');
+    } catch (err) {
+      if (isOfflineFirestoreError(err)) {
+        setSyncStatus('local');
+      } else {
+        handleFirestoreError(err, OperationType.DELETE, notesPath);
       }
     }
-
-    const next = commandNotes.filter((n) => n.id !== id);
-    setCommandNotes(next);
-    saveStoredCommandNotes(next);
+    setCommandNotes((prev) => prev.filter((n) => n.id !== id));
   };
 
   const setActiveProfileId = (id: string) => {
     setActiveProfileIdState(id);
   };
 
-  // ADMIN OPERATIONS
+  // ADMIN OPERATIONS (Main Admin Only — fetches users + all their saved PPTP profiles)
   const loadAdminData = async () => {
     if (!isAdmin) return;
     try {
       const usersSnap = await getDocs(collection(db, 'users'));
       const uList: AdminUserRecord[] = [];
+      const uids: string[] = [];
 
       for (const d of usersSnap.docs) {
         const dData = d.data();
@@ -910,7 +920,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           0,
           Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
         );
-
+        uids.push(d.id);
         uList.push({
           userId: d.id,
           email: dData.email || 'No Email',
@@ -922,12 +932,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           trialStartedAt: dData.trialStartedAt || new Date().toISOString(),
           trialExpiresAt: expiresAt,
           daysRemaining,
-          profilesCount: 1,
+          profilesCount: 0,
           createdAt: dData.createdAt || dData.trialStartedAt || new Date().toISOString(),
           updatedAt: dData.updatedAt || new Date().toISOString(),
         });
       }
       setAdminUsers(uList);
+      await fetchAllUsersProfilesForAdmin(uids);
     } catch (err) {
       console.error('Error loading admin records:', err);
     }
@@ -960,7 +971,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       expiresAt: expires,
     });
 
-    // If an existing registered user matches the email, upgrade them immediately!
     const matchedUser = adminUsers.find(
       (u) => u.email.toLowerCase() === data.assignedEmail.trim().toLowerCase()
     );
@@ -1024,6 +1034,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         errorMessage,
         clearError,
         adminUsers,
+        adminUserProfiles,
         adminLicenses,
         loadAdminData,
         createLicenseKey,

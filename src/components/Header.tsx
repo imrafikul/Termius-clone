@@ -363,18 +363,20 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Real L2TP/SSTP VPN Tunnel Connect / Disconnect Button */}
+          {/* Real PPTP/L2TP/SSTP VPN Tunnel Connect / Disconnect Button */}
           <button
             onClick={onToggleConnect}
-            disabled={isPending || !activeProfile}
+            disabled={isPending || !user || !activeProfile}
             title={
-              isVpnConnected
-                ? 'Real L2TP/SSTP VPN Tunnel Connected (Linux vpn0 active — Private IP Ping/Trace/Telnet live)'
+              !user
+                ? 'Google Login required to access or connect saved PPTP profiles'
+                : isVpnConnected
+                ? 'Real VPN Tunnel Connected (Private IP Ping/Trace/Telnet live)'
                 : isGatewayReady
                 ? 'MikroTik Jump-Gateway Verified'
-                : 'Connect real L2TP / SSTP VPN Tunnel using MikroTik /ppp secret'
+                : 'Connect real PPTP / L2TP / SSTP VPN Tunnel'
             }
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold tracking-tight transition-all duration-200 whitespace-nowrap flex items-center gap-1.5 cursor-pointer shadow-xs ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold tracking-tight transition-all duration-200 whitespace-nowrap flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed ${
               isVpnConnected
                 ? 'bg-emerald-50 text-emerald-800 border border-emerald-400 hover:bg-red-50 hover:text-red-700 hover:border-red-400'
                 : isGatewayReady
