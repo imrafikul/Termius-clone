@@ -26,6 +26,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   XCircle,
+  Network,
+  Radio,
 } from 'lucide-react';
 import { ConnectionState, ConnectionStats, NetworkLogEntry, VpnProfile } from '../types/vpn';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -43,6 +45,7 @@ interface DashboardViewProps {
   onToggleConnect: () => void;
   onNavigateToTab: (tab: 'profiles' | 'terminal' | 'webui' | 'huawei-olt' | 'topology' | 'diagnostics' | 'source' | 'admin') => void;
   onOpenDiagnosticTool?: (tool: 'ping' | 'speed-ping' | 'traceroute' | 'ports-telnet') => void;
+  onOpenProVendor?: (vendor: 'huawei' | 'mikrotik' | 'bdcom' | 'vsol') => void;
   onOpenAddProfile: () => void;
 }
 
@@ -56,6 +59,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onToggleConnect,
   onNavigateToTab,
   onOpenDiagnosticTool,
+  onOpenProVendor,
   onOpenAddProfile,
 }) => {
   const { user, loginWithGoogle, logout, license, updateProfile } = useAuth();
@@ -214,7 +218,89 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </button>
 
-      {/* 0.5 Quick Network Tools Launcher (Ping, Speed Ping, Traceroute, Telnet/SSH, Huawei OLT GUI, Packet Tracer) */}
+      {/* 0.35 Dedicated Datasheet Pro WebUIs (Bidirectional Live Telnet Sync) */}
+      <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-bold text-black tracking-tight">
+              Datasheet Pro WebUI · Bidirectional Live Telnet Sync
+            </h3>
+            <p className="text-xs text-slate-600 mt-0.5">
+              অফিশিয়াল ডাটাশিট অনুযায়ী ফুল কনফিগারেশন — WebUI-তে যেকোনো পরিবর্তন করলে সাথে সাথে Live Telnet-এ CLI কমান্ড পুশ হয়।
+            </p>
+          </div>
+          <span className="text-[11px] font-mono text-slate-500 whitespace-nowrap">
+            4 Dedicated Workbenches
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+          {(
+            [
+              {
+                id: 'huawei' as const,
+                title: 'Huawei SmartAX OLT',
+                models: 'MA5608T · MA5683T · MA5800',
+                features: 'ONT Autofind, Service-Port, DBA/Line, Optical',
+                icon: Server,
+                iconBg: 'bg-red-50 text-red-700 border-red-200',
+              },
+              {
+                id: 'mikrotik' as const,
+                title: 'MikroTik RouterOS v7',
+                models: 'RB5009 · CCR2004 · CCR2116 · CCR2216',
+                features: 'PPP Secrets, Bridge VLAN, BGP v7, Queues, NAT',
+                icon: Cpu,
+                iconBg: 'bg-slate-100 text-slate-900 border-slate-300',
+              },
+              {
+                id: 'bdcom' as const,
+                title: 'BDCOM EPON / GPON OLT',
+                models: 'P3310D · P3608B · P3616 · GP3600',
+                features: 'Bind ONU, CTC VLAN/Rate-Limit, SLA, Optics',
+                icon: Network,
+                iconBg: 'bg-blue-50 text-blue-700 border-blue-200',
+              },
+              {
+                id: 'vsol' as const,
+                title: 'VSOL EPON / GPON OLT',
+                models: 'V1600D4/D8 · V1600G1/G2 · V3600G1',
+                features: 'Auto-Find, DBA/Line/Srv Profile, OPM, SFP+',
+                icon: Radio,
+                iconBg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+              },
+            ] as const
+          ).map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() =>
+                  onOpenProVendor ? onOpenProVendor(item.id) : onNavigateToTab('huawei-olt')
+                }
+                className="text-left p-3.5 rounded-xl bg-slate-50/70 hover:bg-white border border-slate-200 hover:border-black transition-all cursor-pointer group"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`p-1.5 rounded-lg border ${item.iconBg}`}>
+                    <Icon className="w-4 h-4" />
+                  </span>
+                  <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-black group-hover:translate-x-0.5 transition-transform" />
+                </div>
+                <div className="text-xs font-bold text-black">{item.title}</div>
+                <div className="text-[10px] font-mono text-slate-600 mt-0.5 truncate">
+                  {item.models}
+                </div>
+                <div className="text-[11px] text-slate-600 mt-1 leading-snug">
+                  {item.features}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 0.5 Quick Network Tools Launcher (Ping, Speed Ping, Traceroute, Telnet/SSH, OLT & Router Pro, Packet Tracer) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <button
           onClick={() => (onOpenDiagnosticTool ? onOpenDiagnosticTool('ping') : onNavigateToTab('diagnostics'))}
@@ -282,8 +368,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </span>
             <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-black group-hover:translate-x-0.5 transition-transform" />
           </div>
-          <div className="text-sm font-bold text-black">Huawei OLT GUI</div>
-          <div className="text-[11px] text-slate-600 mt-0.5">ONU Add/Del, SN/MAC, Routes</div>
+          <div className="text-sm font-bold text-black">OLT &amp; Router GUI</div>
+          <div className="text-[11px] text-slate-600 mt-0.5">Huawei, MikroTik, BDCOM, VSOL</div>
         </button>
 
         <button

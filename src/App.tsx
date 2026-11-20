@@ -8,7 +8,7 @@ import { DiagnosticsView } from './components/DiagnosticsView';
 import { NativeExplorerView } from './components/NativeExplorerView';
 import { AdminPanelView } from './components/AdminPanelView';
 import { TopologyBuilderView } from './components/TopologyBuilderView';
-import { HuaweiOltView } from './components/HuaweiOltView';
+import ProVendorWebUiHub, { ProVendorId } from './components/ProVendorWebUiHub';
 import { DeviceWebUiView } from './components/DeviceWebUiView';
 import { PWAUpdateToast } from './components/PWAUpdateToast';
 import { OfflineIndicator } from './components/OfflineIndicator';
@@ -47,6 +47,7 @@ function getSafeLocalhostCallbackOrigin(): string | null {
 function AppContent() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'profiles' | 'terminal' | 'webui' | 'huawei-olt' | 'topology' | 'diagnostics' | 'source' | 'admin'>('dashboard');
   const [diagSubTab, setDiagSubTab] = useState<'ping' | 'speed-ping' | 'traceroute' | 'ports-telnet'>('ping');
+  const [proVendorTarget, setProVendorTarget] = useState<ProVendorId>('huawei');
   const [pendingTopologyCli, setPendingTopologyCli] = useState<{
     brand: string;
     hostIp: string;
@@ -593,6 +594,10 @@ function AppContent() {
               setDiagSubTab(tool);
               setActiveTab('diagnostics');
             }}
+            onOpenProVendor={(vendor) => {
+              setProVendorTarget(vendor);
+              setActiveTab('huawei-olt');
+            }}
             onOpenAddProfile={handleOpenAddProfile}
           />
         )}
@@ -623,7 +628,10 @@ function AppContent() {
         {activeTab === 'webui' && <DeviceWebUiView activeProfile={activeProfile} />}
 
         {activeTab === 'huawei-olt' && (
-          <HuaweiOltView defaultHostIp={activeProfile?.server} />
+          <ProVendorWebUiHub
+            defaultHostIp={activeProfile?.server}
+            initialVendor={proVendorTarget}
+          />
         )}
 
         {activeTab === 'topology' && (
@@ -681,7 +689,7 @@ function AppContent() {
             [
               { id: 'webui', label: 'WebUI', icon: Globe },
               { id: 'terminal', label: 'Telnet', icon: Terminal },
-              { id: 'huawei-olt', label: 'OLT GUI', icon: Server },
+              { id: 'huawei-olt', label: 'Pro GUI', icon: Server },
               { id: 'dashboard', label: 'VPN', icon: Layers },
               { id: 'diagnostics', label: 'Ping', icon: Activity },
             ] as const

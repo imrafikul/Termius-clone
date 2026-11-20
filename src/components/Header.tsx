@@ -131,7 +131,7 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <Server className="w-3.5 h-3.5" />
-            <span>Huawei OLT</span>
+            <span>OLT &amp; Router</span>
           </button>
 
           <button
@@ -447,7 +447,7 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <Server className="w-3.5 h-3.5" />
-            <span>Huawei OLT GUI</span>
+            <span>Huawei · MT · BDCOM · VSOL</span>
           </button>
 
           <button
