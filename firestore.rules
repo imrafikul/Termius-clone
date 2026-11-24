@@ -75,6 +75,24 @@ service cloud.firestore {
         (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
     }
 
+    function isValidCloudVm(data) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'osType', 'streamProtocol', 'streamUrl', 'hostIp', 'port']) &&
+        data.keys().hasOnly(['id', 'userId', 'name', 'osType', 'streamProtocol', 'streamUrl', 'hostIp', 'port', 'pptpProfileId', 'resolution', 'notes', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.userId is string && (data.userId == request.auth.uid || isAdmin()) &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        data.osType is string && (data.osType in ['ubuntu-chrome-novnc', 'android-redroid', 'kasm-webrtc', 'windows-novnc', 'custom']) &&
+        data.streamProtocol is string && (data.streamProtocol in ['novnc', 'webrtc', 'ws-scrcpy']) &&
+        data.streamUrl is string && data.streamUrl.size() > 0 && data.streamUrl.size() <= 512 && data.streamUrl.matches('^https?://.+') &&
+        data.hostIp is string && data.hostIp.size() <= 255 &&
+        data.port is number && data.port >= 1 && data.port <= 65535 &&
+        (!('pptpProfileId' in data) || (data.pptpProfileId is string && data.pptpProfileId.size() <= 128)) &&
+        (!('resolution' in data) || (data.resolution is string && data.resolution.size() <= 32)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 300)) &&
+        (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
+    }
+
     function isValidLicense(data) {
       return data.keys().hasAll(['id', 'licenseKey', 'tier', 'durationDays', 'status', 'createdBy']) &&
         data.id is string && isValidId(data.id) &&
@@ -142,6 +160,23 @@ service cloud.firestore {
           request.resource.data.id == resource.data.id &&
           (request.resource.data.userId == resource.data.userId || isAdmin()) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'vendor', 'category', 'commands', 'description', 'pinned', 'updatedAt']);
+      }
+
+      // Isolated Saved Cloud VM (noVNC / WebRTC / Redroid) subcollection
+      match /cloudVms/{vmId} {
+        allow get: if (isOwner(userId) || isAdmin()) && isValidId(vmId);
+        allow list: if isOwner(userId) || isAdmin();
+        allow delete: if (isOwner(userId) || isAdmin()) && isValidId(vmId);
+        allow create: if (isOwner(userId) || isAdmin()) &&
+          isValidId(vmId) &&
+          request.resource.data.id == vmId &&
+          isValidCloudVm(request.resource.data);
+        allow update: if (isOwner(userId) || isAdmin()) &&
+          isValidId(vmId) &&
+          isValidCloudVm(request.resource.data) &&
+          request.resource.data.id == resource.data.id &&
+          (request.resource.data.userId == resource.data.userId || isAdmin()) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'osType', 'streamProtocol', 'streamUrl', 'hostIp', 'port', 'pptpProfileId', 'resolution', 'notes', 'updatedAt']);
       }
     }
 

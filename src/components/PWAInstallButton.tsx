@@ -333,9 +333,6 @@ export const PWAInstallButton: React.FC<Props> = ({ variant = 'header', classNam
                   · Lightweight Desktop App + Standalone Releases
                 </span>
               </div>
-              <p className="text-xs text-slate-700 mt-0.5">
-                ডেক্সটপ অ্যাপ প্যাকেজ ডাউনলোড করে চালালে আসল PPTP/L2TP/SSTP, Private LAN Ping/Tracert/Telnet ও USB Console Cable ১০০% ওয়ার্কিং! স্ট্যান্ডঅ্যালোন Windows .exe / Linux / Android APK সরাসরি GitHub Releases থেকেও ডাউনলোড করা যাবে।
-              </p>
             </div>
           </div>
 

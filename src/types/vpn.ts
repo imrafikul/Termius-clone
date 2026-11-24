@@ -232,4 +232,26 @@ export interface SavedCommandNote {
   updatedAt?: string;
 }
 
+export type CloudVmOsType =
+  | 'ubuntu-chrome-novnc'
+  | 'android-redroid'
+  | 'kasm-webrtc'
+  | 'windows-novnc'
+  | 'custom';
 
+export type CloudVmStreamProtocol = 'novnc' | 'webrtc' | 'ws-scrcpy';
+
+export interface CloudVmNode {
+  id: string;
+  name: string;
+  osType: CloudVmOsType;
+  streamProtocol: CloudVmStreamProtocol;
+  streamUrl: string;
+  hostIp: string;
+  port: number;
+  pptpProfileId?: string;
+  resolution?: string;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}

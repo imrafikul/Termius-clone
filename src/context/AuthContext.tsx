@@ -28,6 +28,9 @@ import {
   SavedTerminalSession,
   SavedCommandNote,
   TerminalVendor,
+  CloudVmNode,
+  CloudVmOsType,
+  CloudVmStreamProtocol,
 } from '../types/vpn';
 import {
   DEFAULT_COMMAND_NOTES,
@@ -77,6 +80,11 @@ interface AuthContextType {
     note: Omit<SavedCommandNote, 'id'> & { id?: string }
   ) => Promise<SavedCommandNote>;
   deleteCommandNote: (id: string) => Promise<void>;
+  cloudVms: CloudVmNode[];
+  saveCloudVm: (
+    vm: Omit<CloudVmNode, 'id'> & { id?: string }
+  ) => Promise<CloudVmNode>;
+  deleteCloudVm: (id: string) => Promise<void>;
   syncStatus: 'synced' | 'syncing' | 'local' | 'error';
   errorMessage: string | null;
   clearError: () => void;
@@ -137,6 +145,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [profiles, setProfiles] = useState<VpnProfile[]>([]);
   const [terminalSessions, setTerminalSessions] = useState<SavedTerminalSession[]>([]);
   const [commandNotes, setCommandNotes] = useState<SavedCommandNote[]>(DEFAULT_COMMAND_NOTES);
+  const [cloudVms, setCloudVms] = useState<CloudVmNode[]>([]);
   const [activeProfileId, setActiveProfileIdState] = useState<string>('');
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'local' | 'error'>('local');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -214,6 +223,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     let unsubProfiles: Unsubscribe | null = null;
     let unsubTerminalSessions: Unsubscribe | null = null;
     let unsubCommandNotes: Unsubscribe | null = null;
+    let unsubCloudVms: Unsubscribe | null = null;
     let unsubAdminUsers: Unsubscribe | null = null;
     let unsubAdminLicenses: Unsubscribe | null = null;
 
@@ -223,6 +233,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (unsubProfiles) unsubProfiles();
       if (unsubTerminalSessions) unsubTerminalSessions();
       if (unsubCommandNotes) unsubCommandNotes();
+      if (unsubCloudVms) unsubCloudVms();
       if (unsubAdminUsers) unsubAdminUsers();
       if (unsubAdminLicenses) unsubAdminLicenses();
 
@@ -422,6 +433,55 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
           );
 
+          // 3.7 Real-Time Listener on THIS Google Account's Isolated Cloud VM Nodes
+          const cloudVmPath = `users/${currentUser.uid}/cloudVms`;
+          const cloudVmColRef = collection(db, cloudVmPath);
+          const allowedOsTypes: CloudVmOsType[] = [
+            'ubuntu-chrome-novnc',
+            'android-redroid',
+            'kasm-webrtc',
+            'windows-novnc',
+            'custom',
+          ];
+          const allowedProtocols: CloudVmStreamProtocol[] = ['novnc', 'webrtc', 'ws-scrcpy'];
+
+          unsubCloudVms = onSnapshot(
+            cloudVmColRef,
+            (vmSnap) => {
+              const vmList: CloudVmNode[] = [];
+              vmSnap.forEach((d) => {
+                const data = d.data();
+                const osTypeVal: CloudVmOsType = allowedOsTypes.includes(data.osType)
+                  ? data.osType
+                  : 'ubuntu-chrome-novnc';
+                const protoVal: CloudVmStreamProtocol = allowedProtocols.includes(data.streamProtocol)
+                  ? data.streamProtocol
+                  : 'novnc';
+                vmList.push({
+                  id: d.id,
+                  name: typeof data.name === 'string' ? data.name : 'Cloud VM',
+                  osType: osTypeVal,
+                  streamProtocol: protoVal,
+                  streamUrl: typeof data.streamUrl === 'string' ? data.streamUrl : '',
+                  hostIp: typeof data.hostIp === 'string' ? data.hostIp : '',
+                  port: typeof data.port === 'number' ? data.port : 6080,
+                  pptpProfileId: typeof data.pptpProfileId === 'string' ? data.pptpProfileId : '',
+                  resolution: typeof data.resolution === 'string' ? data.resolution : '1280x720',
+                  notes: typeof data.notes === 'string' ? data.notes : '',
+                  createdAt: data.createdAt,
+                  updatedAt: data.updatedAt,
+                });
+              });
+              vmList.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+              setCloudVms(vmList);
+            },
+            (error) => {
+              if (!isOfflineFirestoreError(error)) {
+                handleFirestoreError(error, OperationType.GET, cloudVmPath);
+              }
+            }
+          );
+
           // 4. If Main Admin, attach live listeners on ALL Users, their PPTP Profiles & Licenses
           const isUserAdmin = ADMIN_EMAILS.some(
             (adm) => adm.toLowerCase() === currentUser.email?.toLowerCase()
@@ -517,6 +577,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setActiveProfileIdState('');
         setTerminalSessions([]);
         setCommandNotes(DEFAULT_COMMAND_NOTES);
+        setCloudVms([]);
         setLicense(null);
         setAdminUsers([]);
         setAdminUserProfiles({});
@@ -532,6 +593,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (unsubProfiles) unsubProfiles();
       if (unsubTerminalSessions) unsubTerminalSessions();
       if (unsubCommandNotes) unsubCommandNotes();
+      if (unsubCloudVms) unsubCloudVms();
       if (unsubAdminUsers) unsubAdminUsers();
       if (unsubAdminLicenses) unsubAdminLicenses();
     };
@@ -935,6 +997,95 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setCommandNotes((prev) => prev.filter((n) => n.id !== id));
   };
 
+  const saveCloudVm = async (
+    vmInput: Omit<CloudVmNode, 'id'> & { id?: string }
+  ): Promise<CloudVmNode> => {
+    if (!user) {
+      throw new Error('Google লগইন ছাড়া Cloud VM সেভ করা যাবে না।');
+    }
+
+    const rawUrl = (vmInput.streamUrl || '').trim();
+    if (!/^https?:\/\/.+/.test(rawUrl)) {
+      throw new Error('সঠিক https:// বা http:// noVNC / WebRTC URL দিন।');
+    }
+
+    const rawId =
+      vmInput.id && /^[a-zA-Z0-9_-]+$/.test(vmInput.id)
+        ? vmInput.id
+        : `vm_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const cleanId = rawId.slice(0, 128);
+    const nowIso = new Date().toISOString();
+    const existing = cloudVms.find((v) => v.id === cleanId);
+
+    const parsedPort = Math.max(1, Math.min(65535, Number(vmInput.port) || 6080));
+    const saved: CloudVmNode = {
+      id: cleanId,
+      name: (vmInput.name || 'Cloud VirtualBox VM').trim().slice(0, 100) || 'Cloud VirtualBox VM',
+      osType: vmInput.osType || 'ubuntu-chrome-novnc',
+      streamProtocol: vmInput.streamProtocol || 'novnc',
+      streamUrl: rawUrl.slice(0, 512),
+      hostIp: (vmInput.hostIp || '').trim().slice(0, 255),
+      port: parsedPort,
+      pptpProfileId: (vmInput.pptpProfileId || '').trim().slice(0, 128),
+      resolution: (vmInput.resolution || '1280x720').trim().slice(0, 32),
+      notes: (vmInput.notes || '').trim().slice(0, 300),
+      createdAt: existing?.createdAt || vmInput.createdAt || nowIso,
+      updatedAt: nowIso,
+    };
+
+    const vmPath = `users/${user.uid}/cloudVms`;
+    try {
+      setSyncStatus('syncing');
+      const docRef = doc(db, vmPath, cleanId);
+      await setDoc(docRef, {
+        id: saved.id,
+        userId: user.uid,
+        name: saved.name,
+        osType: saved.osType,
+        streamProtocol: saved.streamProtocol,
+        streamUrl: saved.streamUrl,
+        hostIp: saved.hostIp,
+        port: saved.port,
+        pptpProfileId: saved.pptpProfileId || '',
+        resolution: saved.resolution || '1280x720',
+        notes: saved.notes || '',
+        createdAt: saved.createdAt,
+        updatedAt: saved.updatedAt,
+      });
+      setSyncStatus('synced');
+    } catch (err) {
+      if (isOfflineFirestoreError(err)) {
+        setSyncStatus('local');
+      } else {
+        handleFirestoreError(err, existing ? OperationType.UPDATE : OperationType.CREATE, vmPath);
+      }
+    }
+
+    setCloudVms((prev) =>
+      (existing ? prev.map((v) => (v.id === cleanId ? saved : v)) : [saved, ...prev]).sort(
+        (a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')
+      )
+    );
+    return saved;
+  };
+
+  const deleteCloudVm = async (id: string): Promise<void> => {
+    if (!user) return;
+    const vmPath = `users/${user.uid}/cloudVms`;
+    try {
+      setSyncStatus('syncing');
+      await deleteDoc(doc(db, vmPath, id));
+      setSyncStatus('synced');
+    } catch (err) {
+      if (isOfflineFirestoreError(err)) {
+        setSyncStatus('local');
+      } else {
+        handleFirestoreError(err, OperationType.DELETE, vmPath);
+      }
+    }
+    setCloudVms((prev) => prev.filter((v) => v.id !== id));
+  };
+
   const setActiveProfileId = (id: string) => {
     setActiveProfileIdState(id);
   };
@@ -1065,6 +1216,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         commandNotes,
         saveCommandNote,
         deleteCommandNote,
+        cloudVms,
+        saveCloudVm,
+        deleteCloudVm,
         syncStatus,
         errorMessage,
         clearError,

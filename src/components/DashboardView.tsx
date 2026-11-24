@@ -25,6 +25,7 @@ import {
   XCircle,
   Network,
   Radio,
+  Monitor,
 } from 'lucide-react';
 import { ConnectionState, ConnectionStats, NetworkLogEntry, VpnProfile } from '../types/vpn';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -39,7 +40,7 @@ interface DashboardViewProps {
   connectionStats: ConnectionStats;
   logs: NetworkLogEntry[];
   onToggleConnect: () => void;
-  onNavigateToTab: (tab: 'profiles' | 'terminal' | 'webui' | 'huawei-olt' | 'topology' | 'diagnostics' | 'source' | 'admin') => void;
+  onNavigateToTab: (tab: 'profiles' | 'terminal' | 'webui' | 'huawei-olt' | 'cloud-vm' | 'topology' | 'diagnostics' | 'source' | 'admin') => void;
   onOpenDiagnosticTool?: (tool: 'ping' | 'speed-ping' | 'traceroute' | 'ports-telnet') => void;
   onOpenProVendor?: (vendor: 'huawei' | 'mikrotik' | 'bdcom' | 'vsol') => void;
   onOpenAddProfile: () => void;
@@ -295,8 +296,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* 0.5 Quick Network Tools Launcher (Ping, Speed Ping, Traceroute, Telnet/SSH, OLT & Router Pro, Packet Tracer) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      {/* 0.5 Quick Network Tools Launcher (Ping, Speed Ping, Traceroute, Telnet/SSH, OLT & Router Pro, Cloud VM, Packet Tracer) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
         <button
           onClick={() => (onOpenDiagnosticTool ? onOpenDiagnosticTool('ping') : onNavigateToTab('diagnostics'))}
           className="text-left p-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 hover:border-black transition-all cursor-pointer group"
@@ -365,6 +366,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="text-sm font-bold text-black">OLT &amp; Router GUI</div>
           <div className="text-[11px] text-slate-600 mt-0.5">Huawei, MikroTik, BDCOM, VSOL</div>
+        </button>
+
+        <button
+          onClick={() => onNavigateToTab('cloud-vm')}
+          className="text-left p-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 hover:border-black transition-all cursor-pointer group"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="p-2 rounded-lg bg-slate-900 text-white border border-slate-900">
+              <Monitor className="w-4 h-4" />
+            </span>
+            <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-black group-hover:translate-x-0.5 transition-transform" />
+          </div>
+          <div className="text-sm font-bold text-black">Cloud VM</div>
+          <div className="text-[11px] text-slate-600 mt-0.5">VirtualBox noVNC · Chrome · Android</div>
         </button>
 
         <button

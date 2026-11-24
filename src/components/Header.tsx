@@ -17,14 +17,15 @@ import {
   Share2,
   Server,
   Globe,
+  Monitor,
 } from 'lucide-react';
 import { ConnectionState, VpnProfile } from '../types/vpn';
 import { useAuth } from '../context/AuthContext';
 import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
-  activeTab: 'dashboard' | 'profiles' | 'terminal' | 'webui' | 'huawei-olt' | 'topology' | 'diagnostics' | 'source' | 'admin';
-  setActiveTab: (tab: 'dashboard' | 'profiles' | 'terminal' | 'webui' | 'huawei-olt' | 'topology' | 'diagnostics' | 'source' | 'admin') => void;
+  activeTab: 'dashboard' | 'profiles' | 'terminal' | 'webui' | 'huawei-olt' | 'cloud-vm' | 'topology' | 'diagnostics' | 'source' | 'admin';
+  setActiveTab: (tab: 'dashboard' | 'profiles' | 'terminal' | 'webui' | 'huawei-olt' | 'cloud-vm' | 'topology' | 'diagnostics' | 'source' | 'admin') => void;
   connectionState: ConnectionState;
   activeProfile: VpnProfile | null;
   onToggleConnect: () => void;
@@ -132,6 +133,18 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Server className="w-3.5 h-3.5" />
             <span>OLT &amp; Router</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('cloud-vm')}
+            className={`px-2.5 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'cloud-vm'
+                ? 'bg-black text-white shadow-xs'
+                : 'text-slate-700 hover:text-black hover:bg-slate-100'
+            }`}
+          >
+            <Monitor className="w-3.5 h-3.5" />
+            <span>Cloud VM</span>
           </button>
 
           <button
@@ -448,6 +461,18 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Server className="w-3.5 h-3.5" />
             <span>Huawei · MT · BDCOM · VSOL</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('cloud-vm')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 border ${
+              activeTab === 'cloud-vm'
+                ? 'bg-black text-white border-black'
+                : 'bg-white text-black border-slate-300 hover:bg-slate-100'
+            }`}
+          >
+            <Monitor className="w-3.5 h-3.5" />
+            <span>Cloud VM</span>
           </button>
 
           <button

@@ -10,6 +10,7 @@ import { AdminPanelView } from './components/AdminPanelView';
 import { TopologyBuilderView } from './components/TopologyBuilderView';
 import ProVendorWebUiHub, { ProVendorId } from './components/ProVendorWebUiHub';
 import { DeviceWebUiView } from './components/DeviceWebUiView';
+import { CloudVmView } from './components/CloudVmView';
 import { PublicHomeScreen } from './components/PublicHomeScreen';
 import { PWAUpdateToast } from './components/PWAUpdateToast';
 import { OfflineIndicator } from './components/OfflineIndicator';
@@ -46,7 +47,7 @@ function getSafeLocalhostCallbackOrigin(): string | null {
 }
 
 function AppContent() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'profiles' | 'terminal' | 'webui' | 'huawei-olt' | 'topology' | 'diagnostics' | 'source' | 'admin'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'profiles' | 'terminal' | 'webui' | 'huawei-olt' | 'cloud-vm' | 'topology' | 'diagnostics' | 'source' | 'admin'>('dashboard');
   const [diagSubTab, setDiagSubTab] = useState<'ping' | 'speed-ping' | 'traceroute' | 'ports-telnet'>('ping');
   const [proVendorTarget, setProVendorTarget] = useState<ProVendorId>('huawei');
   const [pendingTopologyCli, setPendingTopologyCli] = useState<{
@@ -643,6 +644,8 @@ function AppContent() {
             initialVendor={proVendorTarget}
           />
         )}
+
+        {activeTab === 'cloud-vm' && <CloudVmView />}
 
         {activeTab === 'topology' && (
           <TopologyBuilderView

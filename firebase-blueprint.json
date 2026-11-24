@@ -316,6 +316,81 @@
         }
       },
       "required": ["id", "userId", "title", "vendor", "category", "commands"]
+    },
+    "CloudVm": {
+      "title": "CloudVm",
+      "description": "Private Cloud VM noVNC or WebRTC connection node belonging to the authenticated user",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the Cloud VM node",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the VM owner",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Friendly display name for the Virtual Machine",
+          "maxLength": 100
+        },
+        "osType": {
+          "type": "string",
+          "description": "Guest OS template type",
+          "enum": ["ubuntu-chrome-novnc", "android-redroid", "kasm-webrtc", "windows-novnc", "custom"]
+        },
+        "streamProtocol": {
+          "type": "string",
+          "description": "Remote desktop display protocol",
+          "enum": ["novnc", "webrtc", "ws-scrcpy"]
+        },
+        "streamUrl": {
+          "type": "string",
+          "description": "HTTPS or HTTP URL to the noVNC, WebRTC, or ws-scrcpy display endpoint",
+          "maxLength": 512,
+          "pattern": "^https?://.+"
+        },
+        "hostIp": {
+          "type": "string",
+          "description": "VPS public IP address or hostname",
+          "maxLength": 255
+        },
+        "port": {
+          "type": "number",
+          "description": "TCP port number for the remote display endpoint (1-65535)"
+        },
+        "pptpProfileId": {
+          "type": "string",
+          "description": "Optional linked PPTP profile ID for inside-VM VPN routing",
+          "maxLength": 128
+        },
+        "resolution": {
+          "type": "string",
+          "description": "Preferred display resolution label",
+          "maxLength": 32
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional notes for this Cloud VM",
+          "maxLength": 300
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation ISO timestamp",
+          "maxLength": 64
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last updated ISO timestamp",
+          "maxLength": 64
+        }
+      },
+      "required": ["id", "userId", "name", "osType", "streamProtocol", "streamUrl", "hostIp", "port"]
     }
   },
   "firestore": {
@@ -334,6 +409,10 @@
     "/users/{userId}/commandNotes/{noteId}": {
       "schema": "CommandNote",
       "description": "Private saved CLI Command Notepad scripts belonging to the authenticated user"
+    },
+    "/users/{userId}/cloudVms/{vmId}": {
+      "schema": "CloudVm",
+      "description": "Private saved Cloud VM noVNC and WebRTC remote desktop nodes belonging to the authenticated user"
     },
     "/licenses/{licenseId}": {
       "schema": "LicenseKey",

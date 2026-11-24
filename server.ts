@@ -2627,6 +2627,108 @@ app.delete('/api/telnet/sessions/:id', (req: Request, res: Response) => {
   res.json({ closed: true });
 });
 
+function isBlockedProbeIp(ip: string): boolean {
+  const normalized = ip.toLowerCase().replace(/^::ffff:/, '');
+  if (
+    normalized === '::1' ||
+    normalized === '::' ||
+    normalized.startsWith('fe80:') ||
+    normalized.startsWith('fc') ||
+    normalized.startsWith('fd') ||
+    normalized.startsWith('ff')
+  ) {
+    return true;
+  }
+  const parts = normalized.split('.').map((n) => Number(n));
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    return true;
+  }
+  const [a, b] = parts;
+  if (a === 0 || a === 10 || a === 127) return true; // unspecified, RFC1918, loopback
+  if (a === 169 && b === 254) return true; // link-local / cloud metadata 169.254.169.254
+  if (a === 172 && b >= 16 && b <= 31) return true; // RFC1918
+  if (a === 192 && b === 168) return true; // RFC1918
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  if (a >= 224) return true; // multicast / reserved
+  return false;
+}
+
+// Safe reachability & TCP latency probe for user's public Cloud VM noVNC / WebRTC stream URL
+app.post('/api/cloud-vm/probe', async (req: Request, res: Response) => {
+  try {
+    const rawUrl = typeof req.body?.streamUrl === 'string' ? req.body.streamUrl.trim() : '';
+    if (!rawUrl || rawUrl.length > 512) {
+      return res.status(400).json({ reachable: false, error: 'Invalid stream URL.' });
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      return res.status(400).json({ reachable: false, error: 'Malformed URL format.' });
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return res.status(400).json({ reachable: false, error: 'Only http:// and https:// URLs are allowed.' });
+    }
+    const hostname = parsed.hostname;
+    if (!hostname || hostname.toLowerCase() === 'localhost' || hostname.endsWith('.local')) {
+      return res.status(400).json({ reachable: false, error: 'Loopback and local hostnames cannot be probed from cloud.' });
+    }
+    const port = parsed.port
+      ? Number(parsed.port)
+      : parsed.protocol === 'https:'
+      ? 443
+      : 80;
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return res.status(400).json({ reachable: false, error: 'Invalid TCP port.' });
+    }
+
+    const lookups = await dns.promises.lookup(hostname, { all: true });
+    if (!lookups.length) {
+      return res.json({ reachable: false, error: 'DNS resolution failed.' });
+    }
+    if (lookups.some((entry) => isBlockedProbeIp(entry.address))) {
+      return res.status(400).json({
+        reachable: false,
+        error: 'Private, loopback, or metadata IP addresses are blocked.',
+      });
+    }
+
+    const targetIp = lookups[0].address;
+    const startMs = Date.now();
+
+    const tcpResult = await new Promise<{ ok: boolean; latencyMs: number; error?: string }>((resolve) => {
+      const socket = net.createConnection({ host: targetIp, port, timeout: 4000 });
+      let done = false;
+      const finish = (ok: boolean, error?: string) => {
+        if (done) return;
+        done = true;
+        const latencyMs = Date.now() - startMs;
+        try {
+          socket.destroy();
+        } catch {}
+        resolve({ ok, latencyMs, error });
+      };
+      socket.on('connect', () => finish(true));
+      socket.on('timeout', () => finish(false, `TCP port ${port} timed out after 4s.`));
+      socket.on('error', (err) => finish(false, err.message || 'TCP connection refused.'));
+    });
+
+    return res.json({
+      reachable: tcpResult.ok,
+      resolvedIp: targetIp,
+      port,
+      protocol: parsed.protocol.replace(':', ''),
+      latencyMs: tcpResult.latencyMs,
+      error: tcpResult.error,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      reachable: false,
+      error: err?.message || 'Unable to probe Cloud VM endpoint.',
+    });
+  }
+});
+
 function launchDesktopAppWindow(url: string) {
   try {
     if (process.platform === 'win32') {
