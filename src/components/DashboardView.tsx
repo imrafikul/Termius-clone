@@ -25,7 +25,7 @@ import {
   XCircle,
   Network,
   Radio,
-  Monitor,
+  Smartphone,
 } from 'lucide-react';
 import { ConnectionState, ConnectionStats, NetworkLogEntry, VpnProfile } from '../types/vpn';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -374,12 +374,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         >
           <div className="flex items-center justify-between mb-2">
             <span className="p-2 rounded-lg bg-slate-900 text-white border border-slate-900">
-              <Monitor className="w-4 h-4" />
+              <Smartphone className="w-4 h-4" />
             </span>
             <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-black group-hover:translate-x-0.5 transition-transform" />
           </div>
-          <div className="text-sm font-bold text-black">Cloud VM</div>
-          <div className="text-[11px] text-slate-600 mt-0.5">VirtualBox noVNC · Chrome · Android</div>
+          <div className="text-sm font-bold text-black">Android Emulator</div>
+          <div className="text-[11px] text-slate-600 mt-0.5">Play Store · Chrome · YouTube · PPTP</div>
         </button>
 
         <button

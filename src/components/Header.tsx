@@ -17,7 +17,7 @@ import {
   Share2,
   Server,
   Globe,
-  Monitor,
+  Smartphone,
 } from 'lucide-react';
 import { ConnectionState, VpnProfile } from '../types/vpn';
 import { useAuth } from '../context/AuthContext';
@@ -143,8 +143,8 @@ export const Header: React.FC<HeaderProps> = ({
                 : 'text-slate-700 hover:text-black hover:bg-slate-100'
             }`}
           >
-            <Monitor className="w-3.5 h-3.5" />
-            <span>Cloud VM</span>
+            <Smartphone className="w-3.5 h-3.5" />
+            <span>Emulator</span>
           </button>
 
           <button
@@ -471,8 +471,8 @@ export const Header: React.FC<HeaderProps> = ({
                 : 'bg-white text-black border-slate-300 hover:bg-slate-100'
             }`}
           >
-            <Monitor className="w-3.5 h-3.5" />
-            <span>Cloud VM</span>
+            <Smartphone className="w-3.5 h-3.5" />
+            <span>Android Emulator</span>
           </button>
 
           <button
